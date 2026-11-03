@@ -58,6 +58,26 @@ def ProbeVideo(VideoPath) -> dict:
     }
 
 
+def IterFrames(VideoPath, Wanted):
+    """Yield ``(FrameIndex, BGR frame)`` for the frame indices in ``Wanted``,
+    reading the video once in order and stopping after the last one."""
+    Wanted = set(int(I) for I in Wanted)
+    if not Wanted:
+        return
+    Last = max(Wanted)
+    Cap = cv2.VideoCapture(str(VideoPath))
+    try:
+        for FrameIndex in range(Last + 1):
+            if not Cap.grab():
+                break
+            if FrameIndex in Wanted:
+                Ok, Frame = Cap.retrieve()
+                if Ok:
+                    yield FrameIndex, Frame
+    finally:
+        Cap.release()
+
+
 def GrabFrameAt(VideoPath, Time, Width=None) -> np.ndarray:
     """One BGR frame at (about) ``Time``; ffmpeg snaps to a nearby keyframe."""
     Scale = ["-vf", f"scale={Width}:-2"] if Width else []

@@ -24,6 +24,7 @@ Drive layout (`MyDrive/CalvingPenPipeline/`), one folder per video, one subfolde
 │   └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4
 └── Step02bFull/                           Step 02b: whole clip, 5 fps
     └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4 (4x speed)
+├── Step03aTest/, Step03bFull/             Step 03: KeptTracks.csv, Crops.csv, Crops/, Sheets/
 ```
 
 ## Steps
@@ -33,7 +34,8 @@ Drive layout (`MyDrive/CalvingPenPipeline/`), one folder per video, one subfolde
 | 01 | `Step01PrepareReferenceClip.ipynb`: probe the video, cut `ReferenceClip.mp4` (stream copy) | done |
 | 02a | `Step02aDetectTrackTest.ipynb`: YOLO26n (COCO "cow") + ByteTrack on the first minute, real-time preview (~1 min, GPU) | done |
 | 02b | `Step02bDetectTrackFull.ipynb`: same on the whole clip at 5 fps, 4x preview (~20 min, GPU) | done |
-| 03 | Crops + masks (SAM 2.1 Small); drop short / low-confidence tracks; separate the calf | next |
+| 03a | `Step03aCropCowsTest.ipynb`: crops + SAM 2.1 masks for tracks in the first 2 min, 8 per track (GPU) | in review |
+| 03b | `Step03bCropCowsFull.ipynb`: same for the whole hour, 24 per track; drops short / unsure tracks, flags possible calf | in review |
 | 04 | Embeddings (DINOv3 ViT-S/16) | |
 | 05 | Reference gallery of labeled AnimalIds | |
 | 06 | Re-ID prediction | |
