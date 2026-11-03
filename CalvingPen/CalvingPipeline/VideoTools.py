@@ -120,3 +120,33 @@ def CutClip(VideoPath, StartTime, DurationSeconds, OutPath, ReEncode=True) -> Pa
         check=True,
     )
     return OutPath
+
+
+def PrepareClips(VideoPath, OutputDir, ClipStart, ClipEnd=None, DevStart=None, DevSeconds=300) -> dict:
+    """Probe the video and cut its clips into ``OutputDir`` under fixed names,
+    overwriting any earlier run for this video:
+
+    - ``ReferenceClip.mp4``: ``ClipStart`` to ``ClipEnd`` (None = end of video)
+    - ``DevClip.mp4``: ``DevSeconds`` from ``DevStart``, short, for building later steps
+    - ``Probe.json``: video and clip info plus the settings used
+    """
+    OutputDir = Path(OutputDir)
+    OutputDir.mkdir(parents=True, exist_ok=True)
+    Video = ProbeVideo(VideoPath)
+
+    Start = ParseTime(ClipStart)
+    End = Video["DurationSeconds"] if ClipEnd is None else min(ParseTime(ClipEnd), Video["DurationSeconds"])
+    if End <= Start:
+        raise ValueError(f"ClipStart {FormatTime(Start)} is not before the end {FormatTime(End)}")
+
+    Summary = {"Video": Video, "ClipStart": FormatTime(Start), "ClipEnd": FormatTime(End)}
+    print(f"ReferenceClip {FormatTime(Start)} to {FormatTime(End)} ...")
+    Summary["ReferenceClip"] = ProbeVideo(CutClip(VideoPath, Start, End - Start, OutputDir / "ReferenceClip.mp4"))
+
+    if DevStart is not None:
+        Summary["DevStart"] = FormatTime(ParseTime(DevStart))
+        print(f"DevClip {DevSeconds} s from {Summary['DevStart']} ...")
+        Summary["DevClip"] = ProbeVideo(CutClip(VideoPath, DevStart, DevSeconds, OutputDir / "DevClip.mp4"))
+
+    (OutputDir / "Probe.json").write_text(json.dumps(Summary, indent=2))
+    return Summary

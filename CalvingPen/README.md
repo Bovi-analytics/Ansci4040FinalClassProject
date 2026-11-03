@@ -19,7 +19,7 @@ Each notebook clones this repo in its first cell and imports `CalvingPipeline`.
 
 | Step | Notebook | Status |
 |---|---|---|
-| 01 | `Step01PrepareReferenceClip.ipynb`: probe the video, timeline sheet, cut a short MP4 clip | done |
+| 01 | `Step01PrepareReferenceClip.ipynb`: probe the video, cut `ReferenceClip.mp4` + `DevClip.mp4` (fixed names, overwritten on rerun) | done |
 | 02 | Detect + track cows on the clip (YOLO26n, COCO "cow", Ultralytics tracker) | next |
 | 03 | Masks (SAM 2.1 Small) | |
 | 04 | Embeddings (DINOv3 ViT-S/16) | |
