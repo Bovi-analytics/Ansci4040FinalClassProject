@@ -83,13 +83,21 @@ def SummarizeKept(Tracks: pd.DataFrame, MinFrames, MinConfidence) -> pd.DataFram
 
 
 def SelectCropFrames(Tracks: pd.DataFrame, CropsPerTrack) -> pd.DataFrame:
-    """For each track, split its time span into ``CropsPerTrack`` slices and
-    take the most confident box in each."""
+    """For each track, split its time span into ``CropsPerTrack`` equal slices
+    and take the most confident box in the middle half of each, so two picks
+    are always at least half a slice apart (no near-identical crops)."""
     Picked = []
     for _, Track in Tracks.groupby("TrackId"):
-        Track = Track.sort_values("TimeSeconds")
-        Slices = np.array_split(np.arange(len(Track)), min(CropsPerTrack, len(Track)))
-        Picked += [Track.iloc[Slice].Confidence.idxmax() for Slice in Slices]
+        Times = Track.TimeSeconds
+        Start, Span = Times.min(), max(Times.max() - Times.min(), 1e-6)
+        Slices = min(CropsPerTrack, len(Track))
+        Width = Span / Slices
+        for I in range(Slices):
+            Middle = Track[Times.between(Start + (I + 0.25) * Width, Start + (I + 0.75) * Width)]
+            Whole = Track[Times.between(Start + I * Width, Start + (I + 1) * Width)]
+            Candidates = Middle if not Middle.empty else Whole   # gaps in the track: use the whole slice
+            if not Candidates.empty and Candidates.Confidence.idxmax() not in Picked:
+                Picked.append(Candidates.Confidence.idxmax())
     return Tracks.loc[Picked].reset_index(drop=True)
 
 
