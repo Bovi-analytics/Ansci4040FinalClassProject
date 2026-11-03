@@ -1,0 +1,11 @@
+# Notebooks live on the Shared Drive only (their outputs show farm footage).
+*.ipynb
+# Never commit video, frames, model weights or tokens.
+*.avi
+*.mp4
+*.mov
+*.jpg
+*.png
+*.pt
+*.npz
+Outputs/
