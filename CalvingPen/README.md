@@ -15,7 +15,9 @@ It is built one step at a time on a single reference recording
 
 Each notebook clones this repo in its first cell and imports `CalvingPipeline`.
 
-Drive layout (`MyDrive/CalvingPenPipeline/`), one folder per video, one subfolder per step:
+Outputs go to the group's Shared Drive, `ANSC 4040 Group Project/CalvingPenPipelineOutputs/`
+(set once in `CalvingPipeline/Paths.py`), one folder per video, one subfolder per step.
+The folder is shared, so one person runs a given step at a time:
 
 ```
 <video name>/
