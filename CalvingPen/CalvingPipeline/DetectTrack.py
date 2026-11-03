@@ -101,7 +101,7 @@ def DetectAndTrack(VideoPath, OutputDir, TargetFps=15, ModelName="yolo26n.pt", C
                    Confidence=0.25, ImageSize=640, TrackBufferSeconds=10, MaxSeconds=None,
                    PreviewSeconds=60, PreviewWidth=960) -> dict:
     """Run detection + tracking on every n-th frame so about ``TargetFps``
-    frames per second are processed (150 fps source, 15 target = every 10th)."""
+    frames per second are processed (30 fps clip, 15 target = every 2nd)."""
     from ultralytics import YOLO
 
     OutputDir = Path(OutputDir)
