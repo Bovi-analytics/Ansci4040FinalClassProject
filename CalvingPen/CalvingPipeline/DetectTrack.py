@@ -10,7 +10,8 @@ Outputs in ``OutputDir``, overwritten on every run:
 
 - ``Tracks.csv``: one row per box per processed frame
 - ``TrackSummary.csv``: one row per track (first/last time, frames, confidence)
-- ``PreviewTracks.mp4``: the first ``PreviewSeconds`` with boxes and IDs drawn
+- ``PreviewTracks.mp4``: boxes and IDs drawn, the first ``PreviewSeconds``
+  (None = the whole clip), played ``PreviewSpeed`` times faster
 """
 
 import csv
@@ -99,7 +100,7 @@ def SummarizeTracks(Tracks: pd.DataFrame) -> pd.DataFrame:
 
 def DetectAndTrack(VideoPath, OutputDir, TargetFps=15, ModelName="yolo26n.pt", ClassIds=(CocoCow,),
                    Confidence=0.25, ImageSize=640, TrackBufferSeconds=10, MaxSeconds=None,
-                   PreviewSeconds=60, PreviewWidth=960) -> dict:
+                   PreviewSeconds=None, PreviewSpeed=4, PreviewWidth=960) -> dict:
     """Run detection + tracking on every n-th frame so about ``TargetFps``
     frames per second are processed (30 fps clip, 15 target = every 2nd)."""
     from ultralytics import YOLO
@@ -111,7 +112,7 @@ def DetectAndTrack(VideoPath, OutputDir, TargetFps=15, ModelName="yolo26n.pt", C
     Stride = max(1, round(Fps / TargetFps))
     LastFrame = int(MaxSeconds * Fps) if MaxSeconds else Info["FrameCount"]
     print(f"{Info['Video']}: {Info['Width']}x{Info['Height']} at {Fps} fps, "
-          f"every {Stride}th frame (~{Fps / Stride:.1f} fps), up to {LastFrame / Fps:.0f} s")
+          f"1 of every {Stride} frames (~{Fps / Stride:.1f} fps), up to {LastFrame / Fps:.0f} s")
 
     Model = YOLO(ModelName)
     TrackerPath = _TrackerConfig(int(TrackBufferSeconds * Fps / Stride))
@@ -146,11 +147,11 @@ def DetectAndTrack(VideoPath, OutputDir, TargetFps=15, ModelName="yolo26n.pt", C
                         Writer.writerow([FrameIndex, TimeSeconds, TrackId, X1, Y1, X2, Y2, round(Conf, 3), ClassId])
                         Boxes.append((TrackId, X1, Y1, X2, Y2, Conf))
 
-                if TimeSeconds < PreviewSeconds:
+                if PreviewSeconds is None or TimeSeconds < PreviewSeconds:
                     Drawn = _DrawTracks(Frame, Boxes, Scale, TimeSeconds)
                     if Preview is None:
                         Preview = cv2.VideoWriter(str(PreviewTemp), cv2.VideoWriter_fourcc(*"MJPG"),
-                                                  Fps / Stride, (Drawn.shape[1], Drawn.shape[0]))
+                                                  Fps / Stride * PreviewSpeed, (Drawn.shape[1], Drawn.shape[0]))
                     Preview.write(Drawn)
 
                 Processed += 1
