@@ -9,3 +9,4 @@
 *.pt
 *.npz
 Outputs/
+.DS_Store

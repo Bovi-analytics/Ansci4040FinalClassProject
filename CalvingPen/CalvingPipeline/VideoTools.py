@@ -114,9 +114,48 @@ def CutClip(VideoPath, StartTime, DurationSeconds, OutPath, ReEncode=True) -> Pa
     OutPath.parent.mkdir(parents=True, exist_ok=True)
     Codec = (["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
              if ReEncode else ["-c:v", "copy"])
+    # AVI streams often lack timestamps; regenerate them so the MP4 plays and seeks.
+    Pts = [] if ReEncode else ["-fflags", "+genpts"]
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-ss", str(ParseTime(StartTime)), "-i", str(VideoPath),
+        ["ffmpeg", "-v", "error", "-y", *Pts, "-ss", str(ParseTime(StartTime)), "-i", str(VideoPath),
          "-t", str(ParseTime(DurationSeconds)), *Codec, "-an", str(OutPath)],
         check=True,
     )
     return OutPath
+
+
+def PrepareClips(VideoPath, OutputDir, ClipStart, ClipEnd=None, DevStart=None, DevSeconds=300) -> dict:
+    """Probe the video and cut its clips into ``OutputDir`` under fixed names,
+    overwriting any earlier run for this video:
+
+    - ``DevClip.mp4``: ``DevSeconds`` from ``DevStart``, re-encoded; cut first
+      because the next step is built on it
+    - ``ReferenceClip.mp4``: ``ClipStart`` to ``ClipEnd`` (None = end of video),
+      a stream copy, so an hour of video takes minutes; it may start up to one
+      keyframe before ``ClipStart``
+    - ``Probe.json``: video and clip info plus the settings used, rewritten
+      after each clip so a stopped run still records what finished
+    """
+    OutputDir = Path(OutputDir)
+    OutputDir.mkdir(parents=True, exist_ok=True)
+    Video = ProbeVideo(VideoPath)
+
+    Start = ParseTime(ClipStart)
+    End = Video["DurationSeconds"] if ClipEnd is None else min(ParseTime(ClipEnd), Video["DurationSeconds"])
+    if End <= Start:
+        raise ValueError(f"ClipStart {FormatTime(Start)} is not before the end {FormatTime(End)}")
+
+    Summary = {"Video": Video, "ClipStart": FormatTime(Start), "ClipEnd": FormatTime(End)}
+    SummaryPath = OutputDir / "Probe.json"
+
+    if DevStart is not None:
+        Summary["DevStart"] = FormatTime(ParseTime(DevStart))
+        print(f"DevClip {DevSeconds} s from {Summary['DevStart']} ...")
+        Summary["DevClip"] = ProbeVideo(CutClip(VideoPath, DevStart, DevSeconds, OutputDir / "DevClip.mp4"))
+        SummaryPath.write_text(json.dumps(Summary, indent=2))
+
+    print(f"ReferenceClip {FormatTime(Start)} to {FormatTime(End)} (stream copy) ...")
+    Summary["ReferenceClip"] = ProbeVideo(
+        CutClip(VideoPath, Start, End - Start, OutputDir / "ReferenceClip.mp4", ReEncode=False))
+    SummaryPath.write_text(json.dumps(Summary, indent=2))
+    return Summary
