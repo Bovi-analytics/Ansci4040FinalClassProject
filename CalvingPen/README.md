@@ -24,10 +24,10 @@ The folder is shared, so one person runs a given step at a time:
 ├── ReferenceClip.mp4, Probe.json          Step 01
 ├── Step02aTest/                           Step 02a: first minute, 15 fps
 │   └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4
-└── Step02bFull/                           Step 02b: whole clip, 5 fps
-    └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4 (4x speed)
+├── Step02bFull/                           Step 02b: whole clip, 5 fps
+│   └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4 (4x speed)
 ├── Step03aTest/, Step03bFull/             Step 03: KeptTracks.csv, Crops.csv, Crops/, Sheets/
-├── Step04aTest/, Step04bFull/             Step 04: Embeddings.npy, EmbeddingIndex.csv, TrackSimilarity.csv/.png
+└── Step04aTest/, Step04bFull/             Step 04: Embeddings.npy, EmbeddingIndex.csv, TrackSimilarity.csv/.png
 ```
 
 ## Steps
@@ -37,8 +37,8 @@ The folder is shared, so one person runs a given step at a time:
 | 01 | `Step01PrepareReferenceClip.ipynb`: probe the video, cut `ReferenceClip.mp4` (stream copy) | done |
 | 02a | `Step02aDetectTrackTest.ipynb`: YOLO26n (COCO "cow") + ByteTrack on the first minute, real-time preview (~1 min, GPU) | done |
 | 02b | `Step02bDetectTrackFull.ipynb`: same on the whole clip at 5 fps, 4x preview (~20 min, GPU) | done |
-| 03a | `Step03aCropCowsTest.ipynb`: crops + SAM 2.1 masks for tracks in the first 2 min, 8 per track (GPU) | in review |
-| 03b | `Step03bCropCowsFull.ipynb`: same for the whole hour, 24 per track; drops short / unsure tracks | in review |
+| 03a | `Step03aCropCowsTest.ipynb`: crops + SAM 2.1 masks for tracks in the first 2 min, 8 per track (GPU) | done |
+| 03b | `Step03bCropCowsFull.ipynb`: same for the whole hour, 24 per track; drops short / unsure tracks | done |
 | 04a | `Step04aEmbedTest.ipynb`: DINOv3 ViT-S/16 fingerprints (384-d) of the 03a crops; DINOv2-small fallback without HF access (GPU) | in review |
 | 04b | `Step04bEmbedFull.ipynb`: same for all 03b crops → `Embeddings.npy`, `EmbeddingIndex.csv`, `TrackSimilarity.png` | in review |
 | 05 | Reference gallery of labeled AnimalIds | |
