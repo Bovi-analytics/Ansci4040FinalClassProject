@@ -22,7 +22,7 @@ AVI video ─► 01 cut the window ─► 02 find + follow the cow ─► 03 cut
 | 02 Detect + track | In every processed frame, draws a **box** around each cow; links boxes across frames into **tracks** | **YOLO26n** (Ultralytics, trained on the COCO dataset; we keep only its "cow" class) + **ByteTrack** tracker | Finds where the cows are and which box belongs to which one from one moment to the next |
 | 03 Crop + mask | Drops duplicate and too-short / unsure tracks; picks ~24 frames spread over each track; cuts the cow out and greys out everything that is not her | **SAM 2.1 Small** (Meta's Segment Anything 2.1, given the box as a hint) | Clean pictures of only the cow, from many angles |
 | 04 Fingerprint | Turns each picture into 384 numbers describing her coat pattern and shape | **DINOv3 ViT-S/16** (Meta, gated on Hugging Face; open **DINOv2-small** as fallback) | Pictures of the same cow get similar numbers; that is what recognition compares |
-| 05 Pool | Collects the fingerprints of all videos with an identity label per track | (planned) | The reference set to recognise cows against |
+| 05 Pool | Collects the fingerprints of all videos, labels every track with its cow (`Identities.csv` per video), and checks how well each crop finds its own cow in *other* tracks | none (reuses step 04) | The reference set to recognise cows against |
 | 06 Re-ID | For a new picture, finds the most similar pictures in the pool; "unknown" if nothing is close enough | (planned) | Answers "which cow is this?" |
 | 07 Evaluation | Accuracy, unknown-cow rejection, speed | (planned) | |
 
@@ -39,6 +39,8 @@ None of the models were trained on our cows; all are used as downloaded.
 | **Embedding / fingerprint** | The 384 numbers a model computes from a crop |
 | **Cosine similarity** | How alike two fingerprints are: about 1 = look the same, lower = look different |
 | **Pool / gallery** | Fingerprints of cows whose identity we know (or have labelled locally) |
+| **IdentityId** | The cow label a track gets in the pool, e.g. `Pen2_20260926_Cow01` (pen, date, cow number); set per track in the video's `Identities.csv` |
+| **Self-check** | Hide one track, find the closest crops among all the others: does it land on the same cow? (leave-one-track-out) |
 | **Re-ID** | Re-identification: deciding which known cow a new crop shows |
 | **AnimalId** | The farm's ID for a cow. Unknown for the reference cow, so she is labelled locally as `Pen2_20260926_Cow01` |
 
@@ -80,7 +82,10 @@ The folder is shared, so one person runs a given step at a time:
 ├── Step02bFull/                           Step 02b: whole clip, 5 fps
 │   └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4 (4x speed)
 ├── Step03aTest/, Step03bFull/             Step 03: KeptTracks.csv, Crops.csv, Crops/, Sheets/
-└── Step04aTest/, Step04bFull/             Step 04: Embeddings.npy, EmbeddingIndex.csv, TrackSimilarity.csv/.png
+├── Step04aTest/, Step04bFull/             Step 04: Embeddings.npy, EmbeddingIndex.csv, TrackSimilarity.csv/.png
+└── Identities.csv                         Step 05 input: which cow each track is (edit by hand; never overwritten)
+Pool/, PoolTest/                           Step 05 (next to the video folders): PoolEmbeddings.npy, PoolIndex.csv,
+                                           PoolSummary.csv, SelfCheck.csv/.png
 ```
 
 ## Notebooks
@@ -96,7 +101,8 @@ The folder is shared, so one person runs a given step at a time:
 | 03b | `Step03bCropCowsFull.ipynb`: all tracks, 24 crops each | T4, ~7 min | done |
 | 04a | `Step04aEmbedTest.ipynb`: the 03a crops | T4, <1 min | done |
 | 04b | `Step04bEmbedFull.ipynb`: the 03b crops | T4, ~2 min | done |
-| 05 | Pool of labelled fingerprints across videos | | next |
+| 05a | `Step05aPoolTest.ipynb`: pools the 04a test fingerprints → `PoolTest/` | CPU, seconds | in review |
+| 05b | `Step05bPoolFull.ipynb`: pools the 04b fingerprints of every video → `Pool/` | CPU, seconds | in review |
 | 06 | Re-ID prediction | | |
 | 07 | Evaluation | | |
 

@@ -7,6 +7,7 @@
 | DetectTrack.py| 02   | box every cow, link boxes into tracks             | YOLO26n (COCO "cow" class) + ByteTrack    |
 | CropCows.py   | 03   | clean tracks, pick frames, cut + mask the cow     | SAM 2.1 Small                             |
 | Embed.py      | 04   | one 384-number fingerprint per crop               | DINOv3 ViT-S/16 (fallback DINOv2-small)   |
+| Pool.py       | 05   | pool all videos, label tracks, self-check         | (reuses step 04 fingerprints)             |
 
 Weights download automatically the first time (Ultralytics for YOLO / SAM,
 Hugging Face for DINO). None are trained on our cows. Terms (track, crop,
