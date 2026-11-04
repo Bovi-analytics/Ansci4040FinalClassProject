@@ -7,13 +7,13 @@ From step 02's ``Tracks.csv``:
 2. keep only tracks that last ``MinFrames`` and average ``MinConfidence``,
 3. pick ``CropsPerTrack`` frames per track, spread over its time span (the
    most confident box in each slice), so the crops show different angles,
-4. mask each box with SAM 2.1 (pen, calf and other cows turn grey) and save
+4. mask each box with SAM 2.1 (the pen turns grey; a calf touching her can stay in) and save
    the crop.
 
 Outputs in ``OutputDir``, overwritten on every run:
 
 - ``KeptTracks.csv``: every track, whether it was kept and why not, and its
-  box size relative to the typical track (small = maybe the calf, or lying)
+  box size relative to the typical track (``RelativeSize``)
 - ``Crops.csv``: one row per crop (TrackId, Frame, TimeSeconds, CropPath, box)
 - ``Crops/Track<id>/Frame<n>.jpg``: the masked crops
 - ``Sheets/Track<id>.jpg``: all crops of one track, for checking by eye
@@ -74,11 +74,10 @@ def SummarizeKept(Tracks: pd.DataFrame, MinFrames, MinConfidence) -> pd.DataFram
         Reasons.append("; ".join(Why))
     Summary["Kept"] = [not R for R in Reasons]
     Summary["DroppedBecause"] = Reasons
-    # Box size relative to the typical kept track: well below 1 can be the
-    # calf, or the cow lying down / far from the camera. A hint, not a label.
+    # Box size relative to the typical kept track. Information only: a cow
+    # seen end-on or lying is as small as a calf, so it cannot tell them apart.
     Typical = Summary.loc[Summary.Kept, "MedianBoxArea"].median() if Summary.Kept.any() else np.nan
     Summary["RelativeSize"] = (Summary.MedianBoxArea / Typical).round(2)
-    Summary["MaybeCalf"] = Summary.Kept & (Summary.RelativeSize < 0.6)
     return Summary.round({"FirstSeconds": 2, "LastSeconds": 2, "MeanConfidence": 2}).sort_values("FirstSeconds")
 
 
@@ -194,14 +193,13 @@ def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=25, MinConfidence=0.4, C
                  for P, T in zip(Track.CropPath, Track.TimeSeconds)]
         cv2.imwrite(str(OutputDir / "Sheets" / f"Track{TrackId:04d}.jpg"), _Sheet(Tiles, 8, TileSize))
         Info = Summary.set_index("TrackId").loc[TrackId]
-        Label = f"T{TrackId} {Info.FirstSeconds:.0f}-{Info.LastSeconds:.0f}s" + (" calf?" if Info.MaybeCalf else "")
+        Label = f"T{TrackId} {Info.FirstSeconds:.0f}-{Info.LastSeconds:.0f}s"
         Middle = Track.iloc[len(Track) // 2]
         Overview.append(_Tile(cv2.imread(str(OutputDir / Middle.CropPath)), TileSize, Label))
     if Overview:
         cv2.imwrite(str(OutputDir / "Sheets" / "Overview.jpg"), _Sheet(Overview, 6, TileSize))
 
     Stats = {"TracksKept": int(len(KeptIds)), "TracksTotal": int(len(Summary)), "Crops": len(Crops),
-             "MaybeCalfTracks": Summary.loc[Summary.MaybeCalf, "TrackId"].tolist(),
              "Seconds": round(time.time() - Started, 1)}
     print(Stats)
     return Stats
