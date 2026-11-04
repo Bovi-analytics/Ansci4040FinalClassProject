@@ -1,10 +1,13 @@
 """Step 02: find cows in a clip and give each one a track ID.
 
-YOLO (COCO "cow" class) boxes the cows in each processed frame, and the
-Ultralytics ByteTrack tracker links boxes across frames into tracks. A
-TrackId only means "the same cow since she came into view"; it is not an
-AnimalId. One cow can get several TrackIds (occluded, left the frame);
-Re-ID labels each track later.
+YOLO26n (Ultralytics, ``yolo26n.pt``, trained on COCO; only class 19 "cow"
+is kept) boxes the cows in each processed frame, and the Ultralytics
+ByteTrack tracker links boxes across frames into tracks. A TrackId only
+means "the same box followed from frame to frame"; it is not an AnimalId.
+One cow gets several TrackIds whenever the detector loses her for longer
+than ``TrackBufferSeconds`` (lying down, straining, hidden) or puts a second
+box on part of her; on the reference clip one cow gave 47 tracks. Step 03
+drops the fragments and Re-ID joins the rest.
 
 Outputs in ``OutputDir``, overwritten on every run:
 

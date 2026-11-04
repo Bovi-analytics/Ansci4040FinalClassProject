@@ -7,7 +7,8 @@ From step 02's ``Tracks.csv``:
 2. keep only tracks that last ``MinFrames`` and average ``MinConfidence``,
 3. pick ``CropsPerTrack`` frames per track, spread over its time span (the
    most confident box in each slice), so the crops show different angles,
-4. mask each box with SAM 2.1 (the pen turns grey; a calf touching her can stay in) and save
+4. mask each box with SAM 2.1 Small (Ultralytics ``sam2.1_s.pt``, prompted with
+   the box; the pen turns grey, but a calf touching her can stay in) and save
    the crop.
 
 Outputs in ``OutputDir``, overwritten on every run:

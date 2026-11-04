@@ -7,6 +7,11 @@ them is their cosine similarity: near 1 = looks the same, lower = looks
 different. Crops of the same cow should be closer to each other than to
 crops of other cows; that is what Re-ID (step 06) relies on.
 
+On the reference clip the vectors group by pose more than by track: lying
+crops of the cow score ~0.8 with each other but only ~0.6 with her standing
+crops. Re-ID should therefore compare against the closest gallery crops,
+not a per-cow average.
+
 DINOv3 weights are gated on Hugging Face (request access, then put a read
 token in Colab Secrets as HF_TOKEN). Without access, it falls back to the
 open DINOv2-small, which also gives 384 numbers per crop.
@@ -102,7 +107,7 @@ def _SaveHeatmap(Table: pd.DataFrame, OutPath, Title):
     import matplotlib.pyplot as plt
 
     Size = 1.2 + 0.45 * len(Table)
-    Fig, Ax = plt.subplots(figsize=(Size + 1.5, Size))
+    Fig, Ax = plt.subplots(figsize=(max(Size + 1.5, 6), max(Size, 3.5)))   # wide enough for the title
     Image = Ax.imshow(Table.values, cmap="viridis", vmin=min(0.0, Table.values.min()), vmax=1)
     Ax.set_xticks(range(len(Table)), [f"T{I}" for I in Table.columns], rotation=90, fontsize=8)
     Ax.set_yticks(range(len(Table)), [f"T{I}" for I in Table.index], fontsize=8)
