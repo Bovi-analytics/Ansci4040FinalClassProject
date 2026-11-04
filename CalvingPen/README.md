@@ -81,6 +81,7 @@ The folder is shared, so one person runs a given step at a time:
 │   └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4
 ├── Step02bFull/                           Step 02b: whole clip, 5 fps
 │   └── Tracks.csv, TrackSummary.csv, PreviewTracks.mp4 (4x speed)
+├── Step02cSam2/                           Step 02c experiment: Comparison.csv, Tracks.csv, TrackSummary.csv, PreviewTracks.mp4
 ├── Step03aTest/, Step03bFull/             Step 03: KeptTracks.csv, Crops.csv, Crops/, Sheets/
 ├── Step04aTest/, Step04bFull/             Step 04: Embeddings.npy, EmbeddingIndex.csv, TrackSimilarity.csv/.png
 └── Identities.csv                         Step 05 input: which cow each track is (edit by hand; never overwritten)
@@ -97,6 +98,7 @@ Pool/, PoolTest/                           Step 05 (next to the video folders): 
 | 01 | `Step01PrepareReferenceClip.ipynb` | CPU, a few min | done |
 | 02a | `Step02aDetectTrackTest.ipynb`: first minute, 15 fps, real-time preview | T4, ~1 min | done |
 | 02b | `Step02bDetectTrackFull.ipynb`: whole clip, 5 fps, 4x preview | T4, ~20 min | done |
+| 02c | `Step02cSam2TrackCompare.ipynb`: **experiment**, SAM 2.1 video tracking instead of ByteTrack on 1080–2500 s, compared with 02b | T4, ~10–20 min | in review |
 | 03a | `Step03aCropCowsTest.ipynb`: tracks in the first 2 min, 8 crops each | T4, ~1 min | done |
 | 03b | `Step03bCropCowsFull.ipynb`: all tracks, 24 crops each | T4, ~7 min | done |
 | 04a | `Step04aEmbedTest.ipynb`: the 03a crops | T4, <1 min | done |
@@ -117,6 +119,7 @@ Pool/, PoolTest/                           Step 05 (next to the video folders): 
 ## Known issues
 
 - One cow becomes many tracks (see the glossary); Re-ID, not the tracker, decides which tracks are the same cow.
+  Step 02c tests whether SAM 2.1's video tracking (follows the mask by appearance) keeps her in fewer, longer tracks than ByteTrack (follows boxes by position).
 - A calf touching the cow (e.g. being licked) can end up inside her SAM mask (Step 03, track 198).
 - The fingerprint depends strongly on pose (standing vs. lying); see the step 04 result above.
 - The reference clip has one cow, so Re-ID needs crops from other videos (or the milking-parlor group) to tell cows apart.
