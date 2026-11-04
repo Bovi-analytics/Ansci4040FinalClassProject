@@ -1,2 +1,3 @@
 ultralytics>=8.4
 lap>=0.5.12
+transformers>=4.56   # DINOv3
