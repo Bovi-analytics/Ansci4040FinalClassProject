@@ -56,6 +56,7 @@ None of the models were trained on our cows; all are used as downloaded.
 | Step | Result |
 |---|---|
 | 01 | The AVI header says 150 fps, but the real rate is **30 fps** (the recorder writes ~5 index entries per frame). The copied clip is 1:02:01, 1920×1080, 857 MB. About 93 % of consecutive frames are identical, so the camera updates the picture only ~2 times a second (hence 2 fps from step 02 on) |
+| 02 (YOLO) | Image size matters: on 1080–1320 s (lying, straining) YOLO at its default size 640 found her in only **15 %** of frames, at **1024** in **86 %**. Whole hour at 640: cow in 47 % of frames, 513 s on a T4. The pipeline uses 1024 |
 | Baseline (ByteTrack) | One cow in the pen, but **47 tracks**: YOLO loses her while she lies down or strains (630–2500 s), and sometimes puts a second, weaker box on her head or rear |
 | 03 (SAM 2.1) | On 1080–1980 s, where ByteTrack broke up, SAM kept her as **one track for all 900 s**; YOLO agreed with SAM's box on **97 %** of frames. Test 1080–1320 s at 2 fps: one track for all 240 s, YOLO agrees 86 %, SAM alone 14 %, disagrees 0 % (ByteTrack: 3 tracks, cow in 14 % of frames). ~165 s per 2-minute chunk on a T4, so the hour takes ~75–90 min (half with 1 fps); a stopped run continues where it ended |
 | 04 (on the ByteTrack tracks; to redo on SAM) | 167 duplicate boxes removed; **14 of 40 tracks kept**; **306 crops, all the same cow**. SAM cuts her out cleanly. When she licks the calf, the calf can end up inside her mask (track 198) |
@@ -106,7 +107,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | Step | Notebook | Runtime | Status |
 |---|---|---|---|
 | 01 | `Step01PrepareClip.ipynb` | CPU, a few min | done |
-| 02 | `Step02aDetectTest.ipynb` / `Step02bDetectFull.ipynb` | T4, ~1 min / ~5–10 min | to run |
+| 02 | `Step02aDetectTest.ipynb` / `Step02bDetectFull.ipynb` | T4, ~1 min / ~10–15 min | rerun at image size 1024 |
 | 03 | `Step03aTrackTest.ipynb` / `Step03bTrackFull.ipynb` (resumable) | T4, ~5 min / ~75–90 min | to run |
 | 04 | `Step04aCropTest.ipynb` / `Step04bCropFull.ipynb` | T4, ~1 min / ~10 min | to run |
 | 05 | `Step05aEmbedTest.ipynb` / `Step05bEmbedFull.ipynb` | T4, <1 min / ~2 min | to run |
