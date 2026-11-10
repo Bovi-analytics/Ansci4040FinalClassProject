@@ -24,8 +24,9 @@ How:
 
 **Resumable:** every finished chunk is saved in ``OutputDir/Chunks/``. If
 the run stops (Colab disconnects, GPU time runs out), run it again with the
-same settings and it continues from the first unfinished chunk. Changing a
-setting, or ``Resume=False``, starts over.
+same settings and it continues from the first unfinished chunk. Otherwise it
+overwrites: a finished run, changed settings, new step 02 boxes or
+``Resume=False`` all start over.
 
 Outputs in ``OutputDir`` (rebuilt from the chunks at the end of every run);
 ``Tracks.csv`` has one row per animal per frame, as step 04 expects:
@@ -230,16 +231,24 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
     Fps = Detect["TargetFps"]
     StartSeconds = Detect["StartSeconds"] if StartSeconds is None else max(StartSeconds, Detect["StartSeconds"])
     EndSeconds = min(EndSeconds or Detect["EndSeconds"], Detect["EndSeconds"])
-    Settings = {"Clip": str(ClipPath), "Detections": str(DetectionsDir), "StartSeconds": StartSeconds,
+    import hashlib
+    DetectionsHash = hashlib.md5((Path(DetectionsDir) / "Detections.csv").read_bytes()).hexdigest()
+    Settings = {"Clip": str(ClipPath), "Detections": str(DetectionsDir), "DetectionsHash": DetectionsHash,
+                "StartSeconds": StartSeconds,
                 "EndSeconds": EndSeconds, "Fps": Fps, "ChunkSeconds": ChunkSeconds, "SeedConfidence": SeedConfidence,
                 "SegModel": SegModel, "ImageSize": ImageSize, "LinkIou": LinkIou, "Preview": Preview,
                 "PreviewSpeed": PreviewSpeed, "PreviewWidth": PreviewWidth, "ClipFps": Info["Fps"]}
 
+    # Overwrite rule: start over unless the last run with exactly these settings
+    # (and the same step 02 boxes) stopped part-way; only then continue it.
     SettingsPath = ChunkDir / "Settings.json"
     Same = SettingsPath.exists() and json.loads(SettingsPath.read_text()) == Settings
-    if not (Resume and Same):
+    Total = len(np.arange(StartSeconds, EndSeconds - 1e-6, ChunkSeconds))
+    Finished = Same and all((ChunkDir / f"Chunk{N:03d}.json").exists() for N in range(1, Total + 1))
+    if not (Resume and Same) or Finished:
         if ChunkDir.exists():
-            print("Starting over" + (" (Resume=False)" if not Resume else ": settings changed"))
+            print("Starting over: " + ("Resume=False" if not Resume else
+                                       "the last run finished" if Finished else "settings or step 02 boxes changed"))
         shutil.rmtree(ChunkDir, ignore_errors=True)
     ChunkDir.mkdir(exist_ok=True)
     SettingsPath.write_text(json.dumps(Settings, indent=1))

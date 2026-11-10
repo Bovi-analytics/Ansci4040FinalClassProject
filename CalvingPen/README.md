@@ -30,6 +30,7 @@ AVI video ─► 01 cut ─► 02 detect ─► 03 track ─► 04 crop + mask �
 | 06 Pool | `BuildPool` (`Pool.py`) | Collects the fingerprints of all videos, labels every track with its cow (`Identities.csv` per video), and checks how well each crop finds its own cow elsewhere | none (reuses step 05) | The reference set to recognise cows against |
 | 07 Re-ID | (planned) | For a new picture, finds the most similar pictures in the pool; "unknown" if nothing is close enough | | Answers "which cow is this?" |
 | 08 Evaluation | (planned) | Accuracy, unknown-cow rejection, speed | | |
+| All steps | `RunVideo` / `RunVideos` (`Pipeline.py`) | Runs 01–05 for one video, or for a list of videos (other cows) and then 06; same functions and folders as the step notebooks | (the models above) | Process new videos in one go once the settings are right |
 | Baseline | `DetectAndTrack` (`Baselines/ByteTrack.py`) | The first tracker: YOLO boxes linked by position | YOLO26n + **ByteTrack** | Only to show why SAM is used (47 tracks vs. 1) |
 
 None of the models were trained on our cows; all are used as downloaded.
@@ -111,6 +112,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | 05 | `Step05aEmbedTest.ipynb` / `Step05bEmbedFull.ipynb` | T4, <1 min / ~2 min | to run |
 | 06 | `Step06aPoolTest.ipynb` / `Step06bPoolFull.ipynb` | CPU, seconds | to run (delete `Identities.csv` once first) |
 | - | `BaselineByteTrack.ipynb`: the old tracker, for comparison only | T4, ~20 min | done |
+| 01–06 | `RunPipeline.ipynb`: all steps for a list of videos, then the pool | T4, ~1.5–2 h per hour of video | ready |
 | 07 | Re-ID prediction | | |
 | 08 | Evaluation | | |
 
@@ -119,7 +121,8 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 - PascalCase for files, folders, functions and variables.
 - Never load a whole video into memory; seek or stream.
 - Test on a short piece ("a" notebooks) before full recordings.
-- Every step overwrites its own output folder; edit the settings cell and rerun instead of adding cells.
+- Every step overwrites its own output folder for that video; edit the settings cell and rerun instead of adding cells.
+  Only exceptions: step 03 continues a run that **stopped part-way** (same settings, same step 02 boxes), and `Identities.csv` (hand-made labels) is never overwritten.
 - No videos, weights or tokens in git. The Hugging Face token goes in Colab Secrets as `HF_TOKEN`.
 
 ## Known issues
