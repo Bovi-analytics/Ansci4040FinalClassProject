@@ -35,7 +35,7 @@ def RunVideo(VideoStem=None, VideoFile=None, ClipStart=None, ClipEnd=None, FromS
              TestStart=1080, TestSeconds=240, OutputRoot=None, HfToken=None,
              TargetFps=2, Confidence=0.25, SeedConfidence=0.4, ChunkSeconds=120,
              MinFrames=10, MinConfidence=0.4, CropsPerTrack=None, CropEverySeconds=15,
-             GroupSeconds=None, Preview=True) -> dict:
+             GroupSeconds=None, Preview=True, Half=False) -> dict:
     """Steps ``FromStep``..``ToStep`` (1-5) for one video.
 
     - ``VideoFile``: the raw video's file name, e.g. "2026-09-26-CalvingPen3(1).avi" (found with
@@ -74,7 +74,7 @@ def RunVideo(VideoStem=None, VideoFile=None, ClipStart=None, ClipEnd=None, FromS
                                        Preview=Preview and Test)
         elif Step == 3:
             Results[Step] = TrackCows(ClipPath, Folder[2], Folder[3], ChunkSeconds=ChunkSeconds,
-                                      SeedConfidence=SeedConfidence, Preview=Preview,
+                                      SeedConfidence=SeedConfidence, Preview=Preview, Half=Half,
                                       CompareTracksPath=VideoDir / "BaselineByteTrack" / "Tracks.csv")
         elif Step == 4:
             Results[Step] = CropCows(ClipPath, Folder[3] / "Tracks.csv", Folder[4], MinFrames=MinFrames,

@@ -12,11 +12,18 @@ How:
 
 1. the clip is cut into chunks of ``ChunkSeconds`` at the frame rate of step
    02 (SAM 2's memory grows with every frame, so an hour cannot go in one go),
-2. the first frame of a chunk with a confident YOLO box (``SeedConfidence``)
-   starts SAM there, one object per box (duplicates removed),
-3. SAM 2.1 Small follows every object through the chunk,
-4. at each chunk border an object continues the previous chunk's track if
-   its first box overlaps that track's last box (IoU >= ``LinkIou``),
+2. each chunk starts on its first frame from where SAM left each animal at the
+   end of the previous chunk (``CarryOver``); if YOLO has a confident box
+   (``SeedConfidence``) on her there, YOLO's box is used instead (corrects
+   drift). Confident YOLO boxes elsewhere add new animals (e.g. the calf).
+   Without anything to carry over (the first chunk, or she was lost), SAM
+   starts at the first frame with a confident YOLO box. Before ``CarryOver``,
+   a chunk where YOLO was never sure was skipped (14:00-16:00 of the reference
+   clip) and chunks started late,
+3. SAM 2.1 Small follows every object through the chunk (``Half=True``: in
+   half precision on the GPU, faster),
+4. a carried-over animal keeps its TrackId; a new one continues the previous
+   chunk's track if its first box overlaps that track's last box (IoU >= ``LinkIou``),
 5. every SAM box is compared with YOLO's boxes in the same frame
    (``YoloStatus``): **Agrees** = YOLO sees her in the same place;
    **NoYoloBox** = YOLO saw nothing, SAM kept following her; **Disagrees** =
@@ -83,6 +90,13 @@ def _BoxesByFrame(Detections: pd.DataFrame, Fps) -> dict:
     """{frame number at ``Fps``: (N, 5) array [x1, y1, x2, y2, conf]}."""
     Key = (Detections.TimeSeconds * Fps).round().astype(int)
     return {K: G[["X1", "Y1", "X2", "Y2", "Confidence"]].to_numpy() for K, G in Detections.groupby(Key)}
+
+
+def _Inside(A, B) -> float:
+    """Share of box A that lies inside box B."""
+    W = min(A[2], B[2]) - max(A[0], B[0])
+    H = min(A[3], B[3]) - max(A[1], B[1])
+    return 0.0 if W <= 0 or H <= 0 else W * H / max((A[2] - A[0]) * (A[3] - A[1]), 1e-6)
 
 
 def _Seeds(Boxes: np.ndarray, SeedConfidence) -> np.ndarray:
@@ -159,19 +173,38 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
 
     S, Fps = Settings, Settings["Fps"]
     First, Last = int(round(ChunkStart * Fps)), int(round((ChunkStart + Seconds) * Fps))
-    SeedKey = next((K for K in range(First, Last) if K in YoloBoxes
-                    and (YoloBoxes[K][:, 4] >= S["SeedConfidence"]).any()), None)
-    Rows, LastBox, PreviewWriter, Seeds = [], {}, None, []
+    Rows, LastBox, LastKey, PreviewWriter = [], {}, {}, None
     ChunkPath, PreviewTemp = WorkDir / f"Chunk{Number:03d}.mp4", WorkDir / f"Preview{Number:03d}.avi"
 
+    # Seeds: (TrackId or None, box). Carry over animals SAM still had at the end of the last chunk.
+    Carried = [(T, B) for T, B, Key in Previous if S["CarryOver"] and Key is not None and Key >= First - 2 * Fps]
+    Confident = _Seeds(YoloBoxes.get(First, np.zeros((0, 5))), S["SeedConfidence"])
+    Seeds, Used, Sources = [], set(), []
+    for TrackId, Box in Carried:
+        Ious = [BoxIou(Box, Y) for Y in Confident]
+        Best = int(np.argmax(Ious)) if Ious else None
+        if Best is not None and Ious[Best] >= 0.3 and Best not in Used:
+            Seeds.append((TrackId, Confident[Best, :4])); Used.add(Best); Sources.append("yolo")
+        else:
+            Seeds.append((TrackId, np.asarray(Box))); Sources.append("carried")
+    for I in range(len(Confident)):   # new animals: confident YOLO boxes not already on a carried one
+        if I not in Used and all(_Inside(Confident[I], B) < 0.8 for _, B in Seeds):
+            Seeds.append((None, Confident[I, :4]))
+    Sources += ["new"] * (len(Seeds) - len(Sources))
+    SeedKey = First if Seeds else next((K for K in range(First, Last) if K in YoloBoxes
+                                        and (YoloBoxes[K][:, 4] >= S["SeedConfidence"]).any()), None)
+    if Seeds == [] and SeedKey is not None:
+        Seeds = [(None, B[:4]) for B in _Seeds(YoloBoxes[SeedKey], S["SeedConfidence"])]
+        Sources = ["new"] * len(Seeds)
+
     if SeedKey is not None:
-        Seeds = _Seeds(YoloBoxes[SeedKey], S["SeedConfidence"])
         SeedStart = SeedKey / Fps            # SAM 2 takes its prompts on the first frame: start the chunk there
         _CutChunk(ClipPath, SeedStart, ChunkStart + Seconds - SeedStart, Fps, ChunkPath)
         Predictor = SAM2VideoPredictor(overrides=dict(conf=0.25, task="segment", mode="predict", imgsz=S["ImageSize"],
-                                                      model=S["SegModel"], save=False, verbose=False))
-        Ids = {}
-        for I, R in enumerate(Predictor(source=str(ChunkPath), bboxes=Seeds[:, :4].tolist(), stream=True)):
+                                                      model=S["SegModel"], half=S["Half"], save=False, verbose=False))
+        Ids = {I: T for I, (T, _) in enumerate(Seeds) if T is not None}   # SAM object index -> TrackId
+        Boxes = [[float(V) for V in B] for _, B in Seeds]
+        for I, R in enumerate(Predictor(source=str(ChunkPath), bboxes=Boxes, stream=True)):
             TimeSeconds = round((SeedKey + I) / Fps, 3)
             FrameYolo = YoloBoxes.get(SeedKey + I, np.zeros((0, 5)))
             Objects = []
@@ -193,6 +226,7 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
                                  *[float(V) for V in np.round(Box, 1)], 1.0, CocoCow, int(Mask.sum()),
                                  YoloIou, YoloConf, Number])
                     LastBox[Ids[Obj]] = [float(V) for V in Box]
+                    LastKey[Ids[Obj]] = SeedKey + I
                     Objects.append((Ids[Obj], Box, Mask, Status))
             if Preview:
                 Drawn = DrawMasks(R.orig_img, Objects, Scale, f"{TimeSeconds:7.1f}s  chunk {Number}")
@@ -214,7 +248,8 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
         Writer.writerow(TrackColumns)
         Writer.writerows(Rows)
     State = {"Chunk": Number, "StartSeconds": ChunkStart, "Seconds": Seconds, "Seeds": len(Seeds),
-             "Previous": [[T, B] for T, B in LastBox.items()], "NextTrackId": NextTrackId}
+             "SeedSources": Sources, "StartedAt": None if SeedKey is None else round(SeedKey / Fps, 3),
+             "Previous": [[T, B, LastKey[T]] for T, B in LastBox.items()], "NextTrackId": NextTrackId}
     # Written last: a chunk only counts as done once its .json exists.
     (ChunkDir / f"Chunk{Number:03d}.json").write_text(json.dumps(State))
     return State
@@ -222,7 +257,8 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
 
 def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=None, ChunkSeconds=120,
               SeedConfidence=0.4, SegModel="sam2.1_s.pt", ImageSize=1024, LinkIou=0.3, CompareTracksPath=None,
-              Preview=True, PreviewSpeed=4, PreviewWidth=960, Resume=True, WorkDir=None) -> dict:
+              CarryOver=True, Half=False, Preview=True, PreviewSpeed=4, PreviewWidth=960, Resume=True,
+              WorkDir=None) -> dict:
     """Track the span step 02 covered (or ``StartSeconds``..``EndSeconds`` inside it)."""
     OutputDir, ChunkDir = Path(OutputDir), Path(OutputDir) / "Chunks"
     OutputDir.mkdir(parents=True, exist_ok=True)
@@ -236,7 +272,8 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
     Settings = {"Clip": str(ClipPath), "Detections": str(DetectionsDir), "DetectionsHash": DetectionsHash,
                 "StartSeconds": StartSeconds,
                 "EndSeconds": EndSeconds, "Fps": Fps, "ChunkSeconds": ChunkSeconds, "SeedConfidence": SeedConfidence,
-                "SegModel": SegModel, "ImageSize": ImageSize, "LinkIou": LinkIou, "Preview": Preview,
+                "SegModel": SegModel, "ImageSize": ImageSize, "LinkIou": LinkIou, "CarryOver": CarryOver,
+                "Half": Half, "Preview": Preview,
                 "PreviewSpeed": PreviewSpeed, "PreviewWidth": PreviewWidth, "ClipFps": Info["Fps"]}
 
     # Overwrite rule: start over unless the last run with exactly these settings
@@ -263,7 +300,7 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
     if FirstTodo is not None:
         if FirstTodo > 1:
             State = json.loads((ChunkDir / f"Chunk{FirstTodo - 1:03d}.json").read_text())
-            Previous, NextTrackId = [(T, B) for T, B in State["Previous"]], State["NextTrackId"]
+            Previous, NextTrackId = [tuple(P) + (None,) * (3 - len(P)) for P in State["Previous"]], State["NextTrackId"]
         else:
             Previous, NextTrackId = [], 1
         YoloBoxes = _BoxesByFrame(Detections, Fps)
@@ -276,15 +313,19 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
             ChunkStarted = time.time()
             State = _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, NextTrackId, Settings,
                                 WorkDir, ChunkDir, Scale, Preview)
-            Previous, NextTrackId = [(T, B) for T, B in State["Previous"]], State["NextTrackId"]
+            Previous, NextTrackId = [tuple(P) for P in State["Previous"]], State["NextTrackId"]
             Left = (len(Starts) - Number) * (time.time() - Started) / (Number - FirstTodo + 1)
+            Kinds = ", ".join(f"{State['SeedSources'].count(K)} {K}" for K in ("carried", "yolo", "new")
+                              if State["SeedSources"].count(K))
+            Late = (f", started {State['StartedAt'] - ChunkStart:.0f} s in"
+                    if State["StartedAt"] is not None and State["StartedAt"] > ChunkStart + 1 else "")
             print(f"  chunk {Number}/{len(Starts)} ({FormatTime(ChunkStart)}): "
-                  + (f"{State['Seeds']} seed(s)" if State["Seeds"] else "no confident cow box, skipped")
+                  + (f"{State['Seeds']} seed(s) ({Kinds}){Late}" if State["Seeds"] else "no cow to follow, skipped")
                   + f", {time.time() - ChunkStarted:.0f} s, ~{Left / 60:.0f} min left")
         shutil.rmtree(WorkDir, ignore_errors=True)
 
     # Rebuild the combined outputs from all chunks.
-    Pieces = [pd.read_csv(P) for P in sorted(ChunkDir.glob("Chunk*.csv"))]
+    Pieces = [Piece for P in sorted(ChunkDir.glob("Chunk*.csv")) if len(Piece := pd.read_csv(P))]
     Tracks = pd.concat(Pieces, ignore_index=True) if Pieces else pd.DataFrame(columns=TrackColumns)
     Tracks.to_csv(OutputDir / "Tracks.csv", index=False)
     SummarizeTracks(Tracks).to_csv(OutputDir / "TrackSummary.csv", index=False)

@@ -33,7 +33,13 @@ def ListVideos(Folder=None, WithDuration=True):
     for P in sorted(Folder.iterdir()):
         if P.suffix.lower() not in VideoTypes:
             continue
-        Row = {"VideoFile": P.name, "SizeGb": round(P.stat().st_size / 2**30, 2), "HasOutputs": (OutputRoot / P.stem).exists()}
+        try:
+            Size = round(P.stat().st_size / 2**30, 2)
+        except OSError:   # listed but not readable: a broken Drive shortcut, or still uploading / being moved
+            Rows.append({"VideoFile": P.name, "SizeGb": None, "HasOutputs": (OutputRoot / P.stem).exists(),
+                         "Duration": "not readable (broken shortcut or still uploading?)"})
+            continue
+        Row = {"VideoFile": P.name, "SizeGb": Size, "HasOutputs": (OutputRoot / P.stem).exists()}
         if WithDuration:
             try:
                 from .VideoTools import ProbeVideo
@@ -44,18 +50,35 @@ def ListVideos(Folder=None, WithDuration=True):
     return pd.DataFrame(Rows)
 
 
+def _Loose(Name: str) -> str:
+    """Name compared without case, extra spaces or the extension."""
+    return " ".join(Path(Name).stem.lower().split())
+
+
 def FindVideo(VideoFile) -> Path:
-    """Full path of a video from its file name: first in the calving videos
-    folder, then anywhere in the group folder. Raises with the list of
-    videos that are there if it cannot be found."""
-    VideoFile = Path(VideoFile)
-    if VideoFile.is_absolute() and VideoFile.exists():
+    """Full path of a video from its file name (or a full path): first in the
+    calving videos folder, then anywhere in the group folder, also through
+    Drive shortcuts; case, double spaces and the extension do not matter.
+    Raises with the videos that are there if it cannot be found."""
+    import os
+
+    VideoFile = Path(str(VideoFile).strip())
+    if VideoFile.exists():                                   # a full path that works
         return VideoFile
     if (RawVideoDir / VideoFile.name).exists():
         return RawVideoDir / VideoFile.name
-    Found = sorted(GroupDir.rglob(VideoFile.name)) if GroupDir.exists() else []
-    if Found:
-        return Found[0]
+    Wanted, Similar = _Loose(VideoFile.name), []
+    for Root, Folders, Files in os.walk(GroupDir, followlinks=True):   # followlinks: Drive shortcuts
+        for File in Files:
+            if Path(File).suffix.lower() not in VideoTypes:
+                continue
+            if _Loose(File) == Wanted:
+                return Path(Root) / File
+            if Wanted[:10] and _Loose(File).startswith(Wanted[:10]):
+                Similar.append(str(Path(Root) / File))
     There = sorted(P.name for P in RawVideoDir.iterdir()) if RawVideoDir.exists() else []
-    raise FileNotFoundError(f"No video called {VideoFile.name!r} in {GroupDir}. "
-                            f"Videos in {RawVideoDir.name!r}: {There}")
+    raise FileNotFoundError(
+        f"No video called {VideoFile.name!r} anywhere in {GroupDir}.\n"
+        f"  Similar names: {Similar[:10] or 'none'}\n"
+        f"  Videos in {RawVideoDir.name!r}: {There}\n"
+        "  Fix: copy the exact name from ListVideos(), or paste the video's full path as VideoFile.")
