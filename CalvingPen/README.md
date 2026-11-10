@@ -69,6 +69,20 @@ T169 2302–2409 lying · T186 2477–2513 standing, just after the birth · T19
 T234 3265–3623 standing, rear · T253 3627–3714 standing, close to the camera.
 The calf appears to be born around 04:15–04:16 video time.
 
+## Hugging Face token for DINOv3 (step 05)
+
+Step 05 uses **DINOv3**, which Meta shares on Hugging Face only after you accept its license. Each person who runs step 05 (in `Step05*`, `PipelineSteps` or `RunPipeline`) needs their own free token, set up once:
+
+1. **Make a Hugging Face account:** <https://huggingface.co/join> (your Cornell email is fine).
+2. **Ask for access to the model:** open <https://huggingface.co/facebook/dinov3-vits16-pretrain-lvd1689m>, log in, fill in the short form and accept the license. Approval can take from minutes to a day; the page then says you have access.
+3. **Create a token:** <https://huggingface.co/settings/tokens> > **Create new token** > token type **Read** > give it a name (e.g. `Colab`) > **Create token**, then copy it (it starts with `hf_`). It is shown only once; if lost, create a new one.
+4. **Add it to Colab as a secret:** in the notebook, click the **key icon (Secrets)** in the left sidebar > **Add new secret** > Name `HF_TOKEN` (exactly this), Value = the token > switch **Notebook access** on. Colab keeps it for your account, so every notebook can use it.
+5. **Check:** run the notebook's first cell; it prints `HF_TOKEN: found`. After step 05, `Model.txt` in the output folder should say `facebook/dinov3-vits16-pretrain-lvd1689m`.
+
+**Never** paste the token into a notebook cell, a chat, or GitHub: anyone with it can use your account. If it leaks, delete it at <https://huggingface.co/settings/tokens> and create a new one.
+
+Without a token (or before access is approved) step 05 falls back to the open **DINOv2-small** and says so. Its fingerprints are **not comparable** with DINOv3's, so step 06 stops with an error if videos were fingerprinted with different models: all videos in one pool must use the same model (rerun step 05 for the odd ones).
+
 ## Where things live
 
 | What | Where |
@@ -125,7 +139,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 - Test on a short piece ("a" notebooks) before full recordings.
 - Every step overwrites its own output folder for that video; edit the settings cell and rerun instead of adding cells.
   Only exceptions: step 03 continues a run that **stopped part-way** (same settings, same step 02 boxes), and `Identities.csv` (hand-made labels) is never overwritten.
-- No videos, weights or tokens in git. The Hugging Face token goes in Colab Secrets as `HF_TOKEN`.
+- No videos, weights or tokens in git. The Hugging Face token goes in Colab Secrets as `HF_TOKEN` (see the token section above).
 
 ## Known issues
 
