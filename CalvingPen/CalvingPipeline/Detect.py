@@ -3,7 +3,9 @@
 YOLO26n (Ultralytics ``yolo26n.pt``, trained on the COCO dataset; only class
 19 "cow" is kept) draws a box around every cow it sees in a frame, with a
 confidence from 0 to 1. Frames are sampled at ``TargetFps`` (2 fps: the
-camera only updates the picture ~2 times a second). Boxes are not linked
+camera only updates the picture ~2 times a second), at ``ImageSize`` 1024:
+at YOLO's usual 640 it found the lying cow in only 15 % of frames on
+1080-1320 s, at 1024 in 86 %. Boxes are not linked
 across frames here; that is step 03 (SAM 2.1).
 
 Step 03 uses these boxes to (1) start SAM on the cow at the beginning of each
@@ -74,7 +76,7 @@ def RemoveDuplicateBoxes(Boxes: pd.DataFrame, Containment=0.8) -> pd.DataFrame:
 
 
 def DetectCows(ClipPath, OutputDir, StartSeconds=0, EndSeconds=None, TargetFps=2, ModelName="yolo26n.pt",
-               ClassIds=(CocoCow,), Confidence=0.25, ImageSize=640, Preview=False, PreviewSpeed=4,
+               ClassIds=(CocoCow,), Confidence=0.25, ImageSize=1024, Preview=False, PreviewSpeed=4,
                PreviewWidth=960) -> dict:
     """Run YOLO on ``StartSeconds``..``EndSeconds`` of the clip (None = to the end)."""
     from ultralytics import YOLO
