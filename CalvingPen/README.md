@@ -113,6 +113,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | 05 | `Step05aEmbedTest.ipynb` / `Step05bEmbedFull.ipynb` | T4, <1 min / ~2 min | to run |
 | 06 | `Step06aPoolTest.ipynb` / `Step06bPoolFull.ipynb` | CPU, seconds | to run (delete `Identities.csv` once first) |
 | - | `BaselineByteTrack.ipynb`: the old tracker, for comparison only | T4, ~20 min | done |
+| 01–06 | `PipelineSteps.ipynb`: **all steps in one notebook**, one cell per step, for any video (same functions and folders as the step notebooks) | T4 | ready |
 | 01–06 | `RunPipeline.ipynb`: all steps for a list of videos, then the pool | T4, ~1.5–2 h per hour of video | ready |
 | 07 | Re-ID prediction | | |
 | 08 | Evaluation | | |
