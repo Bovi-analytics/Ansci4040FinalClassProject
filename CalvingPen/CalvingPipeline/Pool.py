@@ -1,6 +1,6 @@
-"""Step 05: put the fingerprints of all videos into one labelled pool.
+"""Step 06: put the fingerprints of all videos into one labelled pool.
 
-Every video folder under ``OutputRoot`` that has step 04 output contributes
+Every video folder under ``OutputRoot`` that has step 05 output contributes
 its fingerprints. Each track gets an identity (which cow it is) from the
 video's ``Identities.csv``:
 
@@ -122,7 +122,7 @@ def _SaveSelfCheckPlot(Check: pd.DataFrame, OutPath, Title):
     plt.close(Fig)
 
 
-def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step04bFull", VideoStems=None, SkipNearDuplicates=True,
+def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step05bEmbedFull", VideoStems=None, SkipNearDuplicates=True,
               ExcludeSeconds=None) -> dict:
     OutputRoot, PoolDir = Path(OutputRoot), Path(PoolDir)
     PoolDir.mkdir(parents=True, exist_ok=True)
@@ -150,7 +150,7 @@ def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step04bFull", VideoStems=Non
 
     if len(set(Models.values())) > 1:
         raise ValueError(f"Fingerprints come from different models, cannot pool them: {Models}. "
-                         "Rerun step 04 so every video uses the same model.")
+                         "Rerun step 05 so every video uses the same model.")
 
     Vectors = np.concatenate(AllVectors)
     Index = pd.concat(AllIndex, ignore_index=True)[

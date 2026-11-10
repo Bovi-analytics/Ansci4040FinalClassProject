@@ -1,6 +1,6 @@
-"""Step 03: cut each tracked cow out of the clip, with the background masked.
+"""Step 04: cut each tracked cow out of the clip, with the background masked.
 
-From step 02's ``Tracks.csv`` (SAM 2, step 02d, or ByteTrack, step 02b):
+From step 03's ``Tracks.csv`` (SAM 2.1; the ByteTrack baseline's has the same columns):
 
 1. drop duplicate boxes (a weaker box sitting inside a stronger one in the
    same frame, e.g. on the cow's head),
@@ -31,32 +31,10 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from .Detect import RemoveDuplicateBoxes
 from .VideoTools import IterFrames
 
 Grey = 127
-
-
-def RemoveDuplicateBoxes(Tracks: pd.DataFrame, Containment=0.8) -> pd.DataFrame:
-    """In each frame, drop a box that lies mostly (``Containment``) inside a
-    more confident one."""
-    Keep = np.ones(len(Tracks), bool)
-    Positions = {Index: Pos for Pos, Index in enumerate(Tracks.index)}
-    for _, Frame in Tracks.groupby("Frame"):
-        if len(Frame) < 2:
-            continue
-        Rows = Frame.sort_values("Confidence", ascending=False)
-        Boxes = Rows[["X1", "Y1", "X2", "Y2"]].to_numpy()
-        Areas = (Boxes[:, 2] - Boxes[:, 0]) * (Boxes[:, 3] - Boxes[:, 1])
-        for I in range(1, len(Rows)):
-            for J in range(I):
-                if not Keep[Positions[Rows.index[J]]]:
-                    continue
-                W = min(Boxes[I, 2], Boxes[J, 2]) - max(Boxes[I, 0], Boxes[J, 0])
-                H = min(Boxes[I, 3], Boxes[J, 3]) - max(Boxes[I, 1], Boxes[J, 1])
-                if W > 0 and H > 0 and W * H / max(Areas[I], 1) >= Containment:
-                    Keep[Positions[Rows.index[I]]] = False
-                    break
-    return Tracks[Keep]
 
 
 def SummarizeKept(Tracks: pd.DataFrame, MinFrames, MinConfidence) -> pd.DataFrame:
@@ -125,7 +103,7 @@ def _Sheet(Tiles, Columns, Size):
     return np.vstack([np.hstack(Tiles[I:I + Columns]) for I in range(0, len(Tiles), Columns)])
 
 
-def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=25, MinConfidence=0.4, CropsPerTrack=24,
+def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=10, MinConfidence=0.4, CropsPerTrack=24,
              CropEverySeconds=None, MaxSeconds=None, UseMasks=True, SegModel="sam2.1_s.pt", Pad=0.05, TileSize=192) -> dict:
     OutputDir = Path(OutputDir)
     OutputDir.mkdir(parents=True, exist_ok=True)

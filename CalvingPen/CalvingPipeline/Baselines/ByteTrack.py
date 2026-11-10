@@ -1,4 +1,7 @@
-"""Step 02: find cows in a clip and give each one a track ID.
+"""Baseline (not part of the pipeline): YOLO26n + ByteTrack tracking.
+
+The first version of the tracking step. Kept only to compare against SAM 2.1
+(step 03): on the reference clip it split one cow into 47 tracks.
 
 YOLO26n (Ultralytics, ``yolo26n.pt``, trained on COCO; only class 19 "cow"
 is kept) boxes the cows in each processed frame, and the Ultralytics
@@ -6,8 +9,7 @@ ByteTrack tracker links boxes across frames into tracks. A TrackId only
 means "the same box followed from frame to frame"; it is not an AnimalId.
 One cow gets several TrackIds whenever the detector loses her for longer
 than ``TrackBufferSeconds`` (lying down, straining, hidden) or puts a second
-box on part of her; on the reference clip one cow gave 47 tracks. Step 03
-drops the fragments and Re-ID joins the rest.
+box on part of her; on the reference clip one cow gave 47 tracks.
 
 Outputs in ``OutputDir``, overwritten on every run:
 
@@ -30,7 +32,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from .VideoTools import ProbeVideo
+from ..VideoTools import ProbeVideo
 
 CocoCow = 19
 TrackColumns = ["Frame", "TimeSeconds", "TrackId", "X1", "Y1", "X2", "Y2", "Confidence", "ClassId"]

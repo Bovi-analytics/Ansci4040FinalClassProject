@@ -1,11 +1,11 @@
-"""Step 04: turn every cow crop into a fingerprint vector (an embedding).
+"""Step 05: turn every cow crop into a fingerprint vector (an embedding).
 
 DINOv3 ViT-S/16 reads each masked crop (padded to a square with the same
 grey as the mask background) and returns 384 numbers that describe its coat
 pattern and shape. Vectors are L2-normalized, so the dot product of two of
 them is their cosine similarity: near 1 = looks the same, lower = looks
 different. Crops of the same cow should be closer to each other than to
-crops of other cows; that is what Re-ID (step 06) relies on.
+crops of other cows; that is what Re-ID (step 07) relies on.
 
 On the reference clip the vectors group by pose more than by track: lying
 crops of the cow score ~0.8 with each other but only ~0.6 with her standing
@@ -122,7 +122,7 @@ def _SaveHeatmap(Table: pd.DataFrame, OutPath, Title):
 
 def EmbedCrops(CropsDir, OutputDir, VideoStem, ModelId=DinoV3, FallbackModelId=DinoV2, Token=None,
                BatchSize=64, NearDuplicateAbove=0.98, GroupSeconds=None) -> dict:
-    """Embed every crop listed in ``CropsDir/Crops.csv`` (a step 03 folder)."""
+    """Embed every crop listed in ``CropsDir/Crops.csv`` (a step 04 folder)."""
     import torch
 
     CropsDir, OutputDir = Path(CropsDir), Path(OutputDir)

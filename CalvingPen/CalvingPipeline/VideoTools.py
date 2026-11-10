@@ -78,6 +78,30 @@ def IterFrames(VideoPath, Wanted):
         Cap.release()
 
 
+def IterSampledFrames(VideoPath, StartSeconds, Seconds, Fps, Width, Height):
+    """Yield ``(TimeSeconds, BGR frame)`` at ``Fps`` frames per second from
+    ``StartSeconds`` for ``Seconds``, decoded by ffmpeg (faster than reading
+    every frame with OpenCV). Steps 02 and 03 sample frames the same way, so
+    their times line up."""
+    Process = subprocess.Popen(
+        ["ffmpeg", "-v", "error", "-ss", f"{StartSeconds:.3f}", "-i", str(VideoPath), "-t", f"{Seconds:.3f}",
+         "-vf", f"fps={Fps}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+        stdout=subprocess.PIPE)
+    Size = Width * Height * 3
+    try:
+        Index = 0
+        while True:
+            Buffer = Process.stdout.read(Size)
+            if len(Buffer) < Size:
+                break
+            yield round(StartSeconds + Index / Fps, 3), np.frombuffer(Buffer, np.uint8).reshape(Height, Width, 3)
+            Index += 1
+    finally:
+        Process.stdout.close()
+        Process.kill()
+        Process.wait()
+
+
 def GrabFrameAt(VideoPath, Time, Width=None) -> np.ndarray:
     """One BGR frame at (about) ``Time``; ffmpeg snaps to a nearby keyframe."""
     Scale = ["-vf", f"scale={Width}:-2"] if Width else []
