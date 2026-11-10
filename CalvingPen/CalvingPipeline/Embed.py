@@ -23,7 +23,9 @@ Outputs in ``OutputDir``, overwritten on every run:
   (relative to the video's output folder, so videos can be pooled later),
   plus ``NearDuplicate`` (almost identical to the previous crop of its track)
 - ``TrackSimilarity.csv`` / ``TrackSimilarity.png``: mean similarity between
-  every pair of tracks; one cow = one bright block
+  every pair of tracks; one cow = one bright block. With ``GroupSeconds`` set,
+  long tracks are split into pieces of that length (``T1@18m`` = track 1,
+  from minute 18), so a one-hour SAM track still shows how her look changes
 - ``Model.txt``: which model actually produced the vectors
 """
 
@@ -119,7 +121,7 @@ def _SaveHeatmap(Table: pd.DataFrame, OutPath, Title):
 
 
 def EmbedCrops(CropsDir, OutputDir, VideoStem, ModelId=DinoV3, FallbackModelId=DinoV2, Token=None,
-               BatchSize=64, NearDuplicateAbove=0.98) -> dict:
+               BatchSize=64, NearDuplicateAbove=0.98, GroupSeconds=None) -> dict:
     """Embed every crop listed in ``CropsDir/Crops.csv`` (a step 03 folder)."""
     import torch
 
@@ -160,7 +162,11 @@ def EmbedCrops(CropsDir, OutputDir, VideoStem, ModelId=DinoV3, FallbackModelId=D
     np.save(OutputDir / "Embeddings.npy", Vectors.astype(np.float32))
     Index.to_csv(OutputDir / "EmbeddingIndex.csv", index=False)
     (OutputDir / "Model.txt").write_text(UsedModel + "\n")
-    Table = TrackSimilarity(Vectors, Crops.TrackId)
+    Groups = Crops.TrackId
+    if GroupSeconds:
+        Minute = (Crops.TimeSeconds // GroupSeconds * GroupSeconds / 60).astype(int)
+        Groups = Crops.TrackId.astype(str) + "@" + Minute.astype(str) + "m"
+    Table = TrackSimilarity(Vectors, Groups.to_numpy(dtype=object))
     Table.to_csv(OutputDir / "TrackSimilarity.csv")
     _SaveHeatmap(Table, OutputDir / "TrackSimilarity.png", f"{VideoStem}\n{UsedModel}")
 

@@ -1,12 +1,13 @@
 """Step 03: cut each tracked cow out of the clip, with the background masked.
 
-From step 02's ``Tracks.csv``:
+From step 02's ``Tracks.csv`` (SAM 2, step 02d, or ByteTrack, step 02b):
 
 1. drop duplicate boxes (a weaker box sitting inside a stronger one in the
    same frame, e.g. on the cow's head),
 2. keep only tracks that last ``MinFrames`` and average ``MinConfidence``,
-3. pick ``CropsPerTrack`` frames per track, spread over its time span (the
-   most confident box in each slice), so the crops show different angles,
+3. pick ``CropsPerTrack`` frames per track (or one per ``CropEverySeconds``
+   if more), spread over its time span (the most confident box in each
+   slice), so the crops show different angles,
 4. mask each box with SAM 2.1 Small (Ultralytics ``sam2.1_s.pt``, prompted with
    the box; the pen turns grey, but a calf touching her can stay in) and save
    the crop.
@@ -82,22 +83,28 @@ def SummarizeKept(Tracks: pd.DataFrame, MinFrames, MinConfidence) -> pd.DataFram
     return Summary.round({"FirstSeconds": 2, "LastSeconds": 2, "MeanConfidence": 2}).sort_values("FirstSeconds")
 
 
-def SelectCropFrames(Tracks: pd.DataFrame, CropsPerTrack) -> pd.DataFrame:
-    """For each track, split its time span into ``CropsPerTrack`` equal slices
-    and take the most confident box in the middle half of each, so two picks
-    are always at least half a slice apart (no near-identical crops)."""
+def SelectCropFrames(Tracks: pd.DataFrame, CropsPerTrack, CropEverySeconds=None) -> pd.DataFrame:
+    """For each track, split its time span into equal slices and take the best
+    box in the middle half of each, so two picks are always at least half a
+    slice apart (no near-identical crops). Slices = ``CropsPerTrack``, or one
+    per ``CropEverySeconds`` if that gives more (SAM tracks can last an hour).
+    Best = most confident; for SAM tracks, where YOLO agrees most (``YoloIoU``)."""
     Picked = []
     for _, Track in Tracks.groupby("TrackId"):
+        Score = Track.Confidence * Track.YoloIoU if "YoloIoU" in Track else Track.Confidence
         Times = Track.TimeSeconds
         Start, Span = Times.min(), max(Times.max() - Times.min(), 1e-6)
-        Slices = min(CropsPerTrack, len(Track))
+        Slices = CropsPerTrack
+        if CropEverySeconds:
+            Slices = max(Slices, int(np.ceil(Span / CropEverySeconds)))
+        Slices = min(Slices, len(Track))
         Width = Span / Slices
         for I in range(Slices):
-            Middle = Track[Times.between(Start + (I + 0.25) * Width, Start + (I + 0.75) * Width)]
-            Whole = Track[Times.between(Start + I * Width, Start + (I + 1) * Width)]
-            Candidates = Middle if not Middle.empty else Whole   # gaps in the track: use the whole slice
-            if not Candidates.empty and Candidates.Confidence.idxmax() not in Picked:
-                Picked.append(Candidates.Confidence.idxmax())
+            Middle = Times.between(Start + (I + 0.25) * Width, Start + (I + 0.75) * Width)
+            Whole = Times.between(Start + I * Width, Start + (I + 1) * Width)
+            Candidates = Score[Middle] if Middle.any() else Score[Whole]   # gaps in the track: use the whole slice
+            if not Candidates.empty and Candidates.idxmax() not in Picked:
+                Picked.append(Candidates.idxmax())
     return Tracks.loc[Picked].reset_index(drop=True)
 
 
@@ -119,7 +126,7 @@ def _Sheet(Tiles, Columns, Size):
 
 
 def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=25, MinConfidence=0.4, CropsPerTrack=24,
-             MaxSeconds=None, UseMasks=True, SegModel="sam2.1_s.pt", Pad=0.05, TileSize=192) -> dict:
+             CropEverySeconds=None, MaxSeconds=None, UseMasks=True, SegModel="sam2.1_s.pt", Pad=0.05, TileSize=192) -> dict:
     OutputDir = Path(OutputDir)
     OutputDir.mkdir(parents=True, exist_ok=True)
     for Sub in ("Crops", "Sheets"):          # overwrite: start these folders empty
@@ -138,7 +145,7 @@ def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=25, MinConfidence=0.4, C
     KeptIds = Summary.loc[Summary.Kept, "TrackId"]
     print(f"{len(KeptIds)} of {len(Summary)} tracks kept")
 
-    Selected = SelectCropFrames(Tracks[Tracks.TrackId.isin(KeptIds)], CropsPerTrack)
+    Selected = SelectCropFrames(Tracks[Tracks.TrackId.isin(KeptIds)], CropsPerTrack, CropEverySeconds)
     ByFrame = {Frame: Rows for Frame, Rows in Selected.groupby("Frame")}
 
     Sam = None

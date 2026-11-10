@@ -22,7 +22,8 @@ Outputs in ``PoolDir``, overwritten on every run:
   TrackId, IdentityId, CropPath, ...), near-duplicate crops left out
 - ``PoolSummary.csv``: per identity, how many videos, tracks and crops
 - ``SelfCheck.csv`` / ``SelfCheck.png``: for each crop, its closest crop in
-  *another* track (as if that track were new) and whether it is the same
+  *another* track (as if that track were new; with ``ExcludeSeconds``, also
+  its own track more than that many seconds away) and whether it is the same
   cow. With one cow this shows how high her true matches score; with more
   cows it is the first accuracy test and shows where a threshold can go
 - ``Model.txt``: the model all fingerprints came from (they must match)
@@ -68,11 +69,18 @@ def FindVideos(OutputRoot, EmbeddingFolder) -> list:
     return sorted(P.parent.parent for P in Path(OutputRoot).glob(f"*/{EmbeddingFolder}/Embeddings.npy"))
 
 
-def SelfCheck(Vectors, Index: pd.DataFrame) -> pd.DataFrame:
-    """Closest crop from another track for every crop (leave-one-track-out)."""
+def SelfCheck(Vectors, Index: pd.DataFrame, ExcludeSeconds=None) -> pd.DataFrame:
+    """Closest crop from another track for every crop (leave-one-track-out).
+    With ``ExcludeSeconds``, only crops of the same track within that many
+    seconds are hidden, so a one-hour SAM track can be checked against its
+    own crops from much earlier or later."""
     Similarity = Vectors @ Vectors.T
     Track = (Index.VideoStem + "/" + Index.TrackId.astype(str)).to_numpy(dtype=object)
-    Similarity[Track[:, None] == Track[None, :]] = -np.inf   # never match your own track
+    Hide = Track[:, None] == Track[None, :]
+    if ExcludeSeconds:
+        Times = Index.TimeSeconds.to_numpy(dtype=float)
+        Hide &= np.abs(Times[:, None] - Times[None, :]) < ExcludeSeconds
+    Similarity[Hide] = -np.inf   # never match your own track (or its nearby crops)
     Identity = Index.IdentityId.to_numpy(dtype=object)
     Rows = []
     for I in range(len(Index)):
@@ -84,8 +92,9 @@ def SelfCheck(Vectors, Index: pd.DataFrame) -> pd.DataFrame:
         SameRow[~Same], OtherRow[~Other] = -np.inf, -np.inf
         Rows.append({
             "VideoStem": Index.VideoStem.iat[I], "TrackId": Index.TrackId.iat[I],
-            "IdentityId": Identity[I], "CropPath": Index.CropPath.iat[I],
+            "IdentityId": Identity[I], "TimeSeconds": Index.TimeSeconds.iat[I], "CropPath": Index.CropPath.iat[I],
             "BestMatchIdentity": Identity[Best], "BestMatchTrack": Index.TrackId.iat[Best],
+            "BestMatchSeconds": Index.TimeSeconds.iat[Best],
             "BestSimilarity": round(float(Similarity[I, Best]), 3),
             "BestSameCow": round(float(SameRow.max()), 3) if np.isfinite(SameRow.max()) else np.nan,
             "BestOtherCow": round(float(OtherRow.max()), 3) if np.isfinite(OtherRow.max()) else np.nan,
@@ -113,7 +122,8 @@ def _SaveSelfCheckPlot(Check: pd.DataFrame, OutPath, Title):
     plt.close(Fig)
 
 
-def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step04bFull", VideoStems=None, SkipNearDuplicates=True) -> dict:
+def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step04bFull", VideoStems=None, SkipNearDuplicates=True,
+              ExcludeSeconds=None) -> dict:
     OutputRoot, PoolDir = Path(OutputRoot), Path(PoolDir)
     PoolDir.mkdir(parents=True, exist_ok=True)
     Videos = FindVideos(OutputRoot, EmbeddingFolder)
@@ -154,7 +164,7 @@ def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step04bFull", VideoStems=Non
                .assign(Tracks=Tracks)[["Videos", "Tracks", "Crops"]].reset_index())
     Summary.to_csv(PoolDir / "PoolSummary.csv", index=False)
 
-    Check = SelfCheck(Vectors, Index)
+    Check = SelfCheck(Vectors, Index, ExcludeSeconds)
     Check.to_csv(PoolDir / "SelfCheck.csv", index=False)
     if len(Check):
         _SaveSelfCheckPlot(Check, PoolDir / "SelfCheck.png",
