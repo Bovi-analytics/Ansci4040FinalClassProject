@@ -164,6 +164,7 @@ def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step05bEmbedFull", VideoStem
                .assign(Tracks=Tracks)[["Videos", "Tracks", "Crops"]].reset_index())
     Summary.to_csv(PoolDir / "PoolSummary.csv", index=False)
 
+    (PoolDir / "SelfCheck.png").unlink(missing_ok=True)
     Check = SelfCheck(Vectors, Index, ExcludeSeconds)
     Check.to_csv(PoolDir / "SelfCheck.csv", index=False)
     if len(Check):
