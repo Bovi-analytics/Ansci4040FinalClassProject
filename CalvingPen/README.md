@@ -69,6 +69,42 @@ T169 2302–2409 lying · T186 2477–2513 standing, just after the birth · T19
 T234 3265–3623 standing, rear · T253 3627–3714 standing, close to the camera.
 The calf appears to be born around 04:15–04:16 video time.
 
+## Run the pipeline on a new video (for the team)
+
+Everything runs in **`PipelineSteps.ipynb`** (one cell per step), or `RunPipeline.ipynb` for several videos at once.
+[Open PipelineSteps in Colab](https://colab.research.google.com/github/chaseshallow/Ansci4040FinalClassProject/blob/main/PipelineSteps.ipynb).
+
+**What you need (once):**
+1. Access to the Shared Drive **BeastsAndBytes** > `ANSC4040GroupProject` (ask the group).
+2. A GPU runtime in Colab: **Runtime > Change runtime type > T4 GPU**.
+3. A Hugging Face token for DINOv3 in Colab Secrets as `HF_TOKEN` ([steps below](#hugging-face-token-for-dinov3-step-05)).
+
+**What you need per video:**
+
+| Setting (cell 2) | What it is | Where to get it |
+|---|---|---|
+| `VideoFile` | the raw video's file name, e.g. `2026-09-26-CalvingPen3(1).avi` | cell 2 prints a table of the videos in `CalvingPenVideos ` (`HasOutputs` = someone already ran it). The notebook finds the file by name, also if it was moved inside `ANSC4040GroupProject` |
+| `VideoStem` | the output folder name | leave `None` (= the file name without `.avi`). Only the reference video uses its old name `2026-09-26 00-00-00 Calving Pen 2` |
+| `ClipStart`, `ClipEnd` | when the calving happens in the video (HH:MM:SS) | the group log, or `Timeline.jpg`: step 01 saves one picture every 15 min of the video before cutting |
+| `Test` | `True` = 4 minutes from `TestStart`, `False` = the whole clip | run `True` first, then `False` |
+
+**Order:** cells 1–2, then 3 (cut the clip), 4 (YOLO), 5 (SAM), 6 (crops), 7 (fingerprints), 8 (pool). Check each result
+before the next (what to look for is in the notebook's last cell). A 1-hour clip takes ~2 h on a T4, mostly cell 5;
+if Colab stops during cell 5, rerun it and it continues.
+
+**Rules:** one person per video (tell the group which one you run); only one person runs the pool (cell 8), after the
+videos are finished; nobody edits `CalvingPipeline/*.py` in Colab (changes go through GitHub).
+
+**If something is not found:**
+
+| Message | Fix |
+|---|---|
+| `No video called '…'` | the file name in `VideoFile` is wrong: copy it from the table in cell 2 |
+| `… does not exist. Is Drive mounted, and was the folder renamed?` | a Drive folder was renamed: fix the three lines in `CalvingPipeline/Paths.py` (via GitHub) |
+| `Run step 0x first` / missing `Detections.csv`, `Tracks.csv`, `Crops.csv` | run the cells in order, with the same `Test` setting |
+| `HF_TOKEN: not set` | add the token to Colab Secrets (below) and turn on notebook access |
+| Old code after an update | **Runtime > Disconnect and delete runtime**, then run again from cell 1 |
+
 ## Hugging Face token for DINOv3 (step 05)
 
 Step 05 uses **DINOv3**, which Meta shares on Hugging Face only after you accept its license. Each person who runs step 05 (in `Step05*`, `PipelineSteps` or `RunPipeline`) needs their own free token, set up once:

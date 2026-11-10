@@ -18,7 +18,7 @@ import time
 import traceback
 from pathlib import Path
 
-from .Paths import OutputRoot as DefaultOutputRoot
+from .Paths import FindVideo, OutputRoot as DefaultOutputRoot
 from .VideoTools import PrepareClips
 
 StepNames = {1: "PrepareClip", 2: "Detect", 3: "Track", 4: "Crop", 5: "Embed", 6: "Pool"}
@@ -31,15 +31,16 @@ def StepFolders(Test=False) -> dict:
            {6: "PoolTest" if Test else "Pool"}
 
 
-def RunVideo(VideoStem, VideoPath=None, ClipStart=None, ClipEnd=None, FromStep=1, ToStep=5, Test=False,
+def RunVideo(VideoStem=None, VideoFile=None, ClipStart=None, ClipEnd=None, FromStep=1, ToStep=5, Test=False,
              TestStart=1080, TestSeconds=240, OutputRoot=None, HfToken=None,
              TargetFps=2, Confidence=0.25, SeedConfidence=0.4, ChunkSeconds=120,
              MinFrames=10, MinConfidence=0.4, CropsPerTrack=None, CropEverySeconds=15,
              GroupSeconds=None, Preview=True) -> dict:
     """Steps ``FromStep``..``ToStep`` (1-5) for one video.
 
-    - ``VideoStem``: the video's output folder name, e.g. "2026-09-26 00-00-00 Calving Pen 2"
-    - ``VideoPath``, ``ClipStart``, ``ClipEnd``: only needed for step 01 (cut the clip)
+    - ``VideoFile``: the raw video's file name, e.g. "2026-09-26-CalvingPen3(1).avi" (found with
+      ``FindVideo``); only needed for step 01, together with ``ClipStart`` / ``ClipEnd``
+    - ``VideoStem``: the output folder name; default = the file name without extension
     - ``Test``: run on ``TestStart`` .. ``TestStart + TestSeconds`` of the clip only
     Returns each step's numbers; raises if a step fails (later steps need its output).
     """
@@ -48,6 +49,10 @@ def RunVideo(VideoStem, VideoPath=None, ClipStart=None, ClipEnd=None, FromStep=1
     from .Embed import EmbedCrops
     from .Track import TrackCows
 
+    if VideoStem is None:
+        if VideoFile is None:
+            raise ValueError("Give VideoFile (the raw video's name) or VideoStem (its output folder)")
+        VideoStem = Path(VideoFile).stem
     VideoDir = Path(OutputRoot or DefaultOutputRoot) / VideoStem
     ClipPath = VideoDir / "ReferenceClip.mp4"
     Folder = {Step: VideoDir / Name for Step, Name in StepFolders(Test).items() if Step <= 5}
@@ -60,9 +65,10 @@ def RunVideo(VideoStem, VideoPath=None, ClipStart=None, ClipEnd=None, FromStep=1
         print(f"\n=== {VideoStem}: step 0{Step} {StepNames[Step]} ===")
         StepStarted = time.time()
         if Step == 1:
-            if VideoPath is None or ClipStart is None:
-                raise ValueError("Step 01 needs VideoPath and ClipStart (or start at FromStep=2)")
-            Results[Step] = {"ClipStart": PrepareClips(VideoPath, VideoDir, ClipStart, ClipEnd)["ClipStart"]}
+            if VideoFile is None:
+                raise ValueError("Step 01 needs VideoFile (or start at FromStep=2 if ReferenceClip.mp4 exists)")
+            Summary = PrepareClips(FindVideo(VideoFile), VideoDir, ClipStart or 0, ClipEnd)
+            Results[Step] = {"ClipStart": Summary["ClipStart"], "ClipEnd": Summary["ClipEnd"]}
         elif Step == 2:
             Results[Step] = DetectCows(ClipPath, Folder[2], Start, End, TargetFps=TargetFps, Confidence=Confidence,
                                        Preview=Preview and Test)
@@ -82,8 +88,8 @@ def RunVideo(VideoStem, VideoPath=None, ClipStart=None, ClipEnd=None, FromStep=1
 
 
 def RunVideos(Videos, Test=False, Pool=True, OutputRoot=None, HfToken=None, ExcludeSeconds=None, **Settings) -> dict:
-    """``RunVideo`` for every entry of ``Videos`` (dicts with VideoStem and, for
-    step 01, VideoPath / ClipStart / ClipEnd / FromStep), then step 06 over
+    """``RunVideo`` for every entry of ``Videos`` (dicts with VideoFile and/or
+    VideoStem, ClipStart / ClipEnd for step 01, FromStep / ToStep), then step 06 over
     all video folders. A video that fails is reported and skipped; the
     others still run."""
     from .Pool import BuildPool
@@ -92,7 +98,7 @@ def RunVideos(Videos, Test=False, Pool=True, OutputRoot=None, HfToken=None, Excl
     Results, Failed = {}, {}
     for Video in Videos:
         Video = dict(Video)
-        Stem = Video.pop("VideoStem")
+        Stem = Video.pop("VideoStem", None) or Path(Video.get("VideoFile", "")).stem
         try:
             Results[Stem] = RunVideo(Stem, Test=Test, OutputRoot=OutputRoot, HfToken=HfToken, **Video, **Settings)
         except Exception as Error:   # keep going with the other videos
