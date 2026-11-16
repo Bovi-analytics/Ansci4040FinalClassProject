@@ -92,6 +92,8 @@ Everything runs in **`PipelineSteps.ipynb`** (one cell per step), or `RunPipelin
 before the next (what to look for is in the notebook's last cell). A 1-hour clip takes ~2 h on a T4, mostly cell 5;
 if Colab stops during cell 5, rerun it and it continues.
 
+**Splitting the work:** teammates can run `PipelineSteps` (with `Test = False`) only up to **cell 6 (step 04)** for their videos and check `Step04bCropFull/Sheets/Overview.jpg`. One person then runs **`Step05bEmbedFull`** with `VideoStems = "AllNew"`: it fingerprints every video folder that has step 04 crops but no up-to-date fingerprints yet, skips crops that did not come from SAM 2.1 tracks, and has no DINOv2 fallback (so models never mix). Then **`Step06bPoolFull`** pools all of them. Both notebooks print a status table per video: SAM tracks, crops and where they came from, DINOv3 fingerprints up to date, in the pool.
+
 **Rules:** one person per video (tell the group which one you run); only one person runs the pool (cell 8), after the
 videos are finished; nobody edits `CalvingPipeline/*.py` in Colab (changes go through GitHub).
 

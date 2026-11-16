@@ -113,3 +113,47 @@ def RunVideos(Videos, Test=False, Pool=True, OutputRoot=None, HfToken=None, Excl
         print("\nFAILED:", *[f"  {S}: {E}" for S, E in Failed.items()], sep="\n")
     Results["Failed"] = Failed
     return Results
+
+
+def VideoStatus(OutputRoot=None, Test=False):
+    """One row per video folder: which steps are done, which tracker the crops
+    came from, whether the fingerprints are up to date and with which model,
+    and whether the video is in the pool. Shows at a glance that only SAM
+    2.1 outputs are used."""
+    import json
+
+    import pandas as pd
+
+    from .Embed import DinoV3, CropSource, EmbedUpToDate
+
+    OutputRoot = Path(OutputRoot or DefaultOutputRoot)
+    F = StepFolders(Test)
+    PoolIndex = OutputRoot / F[6] / "PoolIndex.csv"
+    InPool = set(pd.read_csv(PoolIndex).VideoStem) if PoolIndex.exists() else set()
+    Rows = []
+    for VideoDir in sorted(P for P in OutputRoot.iterdir() if P.is_dir() and P.name not in ("Pool", "PoolTest", "Old")):
+        Tracks = VideoDir / F[3] / "Tracks.csv"
+        Crops = VideoDir / F[4] / "Crops.csv"
+        Model = VideoDir / F[5] / "Model.txt"
+        Rows.append({
+            "VideoStem": VideoDir.name,
+            "Clip": (VideoDir / "ReferenceClip.mp4").exists(),
+            "Detect02": (VideoDir / F[2] / "Detections.csv").exists(),
+            "SamTracks03": (VideoDir / F[3] / "Chunks" / "Settings.json").exists() and Tracks.exists(),
+            "Tracks": int(pd.read_csv(Tracks, usecols=["TrackId"]).TrackId.nunique()) if Tracks.exists() else None,
+            "Crops04": int(len(pd.read_csv(Crops))) if Crops.exists() else None,
+            "CropsFrom": CropSource(VideoDir, F[4]) if Crops.exists() else "",
+            "Embed05UpToDate": EmbedUpToDate(VideoDir, F[4], F[5]),
+            "Model05": Model.read_text().strip().split("/")[-1] if Model.exists() else "",
+            "InPool06": VideoDir.name in InPool,
+            "OldFolders": sorted(P.name for P in VideoDir.iterdir() if P.is_dir() and P.name in (
+                "Step02aTest", "Step02bFull", "Step02cSam2", "Step02dSam2Full", "Step03aTest", "Step03bFull",
+                "Step04aTest", "Step04bFull")) or "",
+        })
+    Status = pd.DataFrame(Rows)
+    if len(Status):
+        Ready = Status.Crops04.notna() & Status.CropsFrom.str.startswith("SAM")
+        print(f"{len(Status)} video folders; {int(Ready.sum())} with SAM crops; "
+              f"{int(Status.Embed05UpToDate.sum())} with up-to-date {DinoV3.split('/')[-1]} fingerprints; "
+              f"{int(Status.InPool06.sum())} in {F[6]}/")
+    return Status

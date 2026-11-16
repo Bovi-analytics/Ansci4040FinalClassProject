@@ -27,9 +27,15 @@ Outputs in ``OutputDir``, overwritten on every run:
   long tracks are split into pieces of that length (``T1@18m`` = track 1,
   from minute 18), so a one-hour SAM track still shows how her look changes
 - ``Model.txt``: which model actually produced the vectors
+- ``Source.json``: which crops they belong to (to tell if they are up to date)
+
+``EmbedVideos`` does this for many video folders at once: by default every
+video whose step 04 crops have no up-to-date fingerprints yet (``"AllNew"``).
 """
 
 import gc
+import hashlib
+import json
 import time
 from pathlib import Path
 
@@ -162,6 +168,9 @@ def EmbedCrops(CropsDir, OutputDir, VideoStem, ModelId=DinoV3, FallbackModelId=D
     np.save(OutputDir / "Embeddings.npy", Vectors.astype(np.float32))
     Index.to_csv(OutputDir / "EmbeddingIndex.csv", index=False)
     (OutputDir / "Model.txt").write_text(UsedModel + "\n")
+    # Which crops these fingerprints belong to: EmbedVideos("AllNew") redoes a video when they change.
+    (OutputDir / "Source.json").write_text(json.dumps({"Crops": str(CropsDir / "Crops.csv"),
+                                                       "CropsMd5": _Md5(CropsDir / "Crops.csv"), "Model": UsedModel}))
     Groups = Crops.TrackId
     if GroupSeconds:
         Minute = (Crops.TimeSeconds // GroupSeconds * GroupSeconds / 60).astype(int)
@@ -178,3 +187,68 @@ def EmbedCrops(CropsDir, OutputDir, VideoStem, ModelId=DinoV3, FallbackModelId=D
              "CropsPerSecond": round(len(Index) / Seconds, 1)}
     print(Stats)
     return Stats
+
+
+def _Md5(Path_) -> str:
+    return hashlib.md5(Path(Path_).read_bytes()).hexdigest()
+
+
+def CropSource(VideoDir, CropFolder="Step04bCropFull") -> str:
+    """Which tracker the crops of a video came from: "SAM 2.1", "ByteTrack" or
+    "SAM 2.1 (by date)" for crops made before ``Crop.json`` existed (made
+    after this video's SAM tracks), else "unknown"."""
+    VideoDir = Path(VideoDir)
+    Info = VideoDir / CropFolder / "Crop.json"
+    if Info.exists():
+        return json.loads(Info.read_text()).get("Tracker", "unknown")
+    Crops, Tracks = VideoDir / CropFolder / "Crops.csv", VideoDir / CropFolder.replace("04", "03").replace("Crop", "Track") / "Tracks.csv"
+    if Crops.exists() and Tracks.exists() and Crops.stat().st_mtime > Tracks.stat().st_mtime:
+        return "SAM 2.1 (by date)"
+    return "unknown"
+
+
+def EmbedUpToDate(VideoDir, CropFolder="Step04bCropFull", EmbedFolder="Step05bEmbedFull", ModelId=DinoV3) -> bool:
+    """True if the video's fingerprints exist, come from ``ModelId`` and
+    belong to its current crops."""
+    Crops, Embed = Path(VideoDir) / CropFolder, Path(VideoDir) / EmbedFolder
+    if not (Embed / "Embeddings.npy").exists() or not (Crops / "Crops.csv").exists():
+        return False
+    if (Embed / "Source.json").exists():
+        Source = json.loads((Embed / "Source.json").read_text())
+        return Source.get("Model") == ModelId and Source.get("CropsMd5") == _Md5(Crops / "Crops.csv")
+    Model = (Embed / "Model.txt").read_text().strip() if (Embed / "Model.txt").exists() else ""
+    return Model == ModelId and (Embed / "Embeddings.npy").stat().st_mtime > (Crops / "Crops.csv").stat().st_mtime
+
+
+def EmbedVideos(OutputRoot, VideoStems="AllNew", CropFolder="Step04bCropFull", EmbedFolder="Step05bEmbedFull",
+                ModelId=DinoV3, Token=None, GroupSeconds=300, OnlySam=True) -> pd.DataFrame:
+    """Step 05 for many videos. ``VideoStems``: "AllNew" = every video folder
+    with crops but no up-to-date fingerprints; "All" = every video folder with
+    crops; or a list of folder names. ``OnlySam``: skip videos whose crops
+    did not come from SAM 2.1 tracks. No fallback model here: if ``ModelId``
+    cannot be loaded (token), it stops instead of mixing models in the pool."""
+    OutputRoot = Path(OutputRoot)
+    WithCrops = sorted(P.parent.parent for P in OutputRoot.glob(f"*/{CropFolder}/Crops.csv"))
+    if VideoStems == "All":
+        Videos = WithCrops
+    elif VideoStems == "AllNew":
+        Videos = [V for V in WithCrops if not EmbedUpToDate(V, CropFolder, EmbedFolder, ModelId)]
+    else:
+        Videos = [OutputRoot / S for S in ([VideoStems] if isinstance(VideoStems, str) else VideoStems)]
+    Rows = []
+    for VideoDir in Videos:
+        Source = CropSource(VideoDir, CropFolder)
+        Row = {"VideoStem": VideoDir.name, "CropsFrom": Source}
+        if not (VideoDir / CropFolder / "Crops.csv").exists():
+            Row["Result"] = f"skipped: no {CropFolder}/Crops.csv"
+        elif OnlySam and not Source.startswith("SAM"):
+            Row["Result"] = "skipped: crops not from SAM 2.1 tracks (rerun steps 03-04)"
+        else:
+            print(f"\n=== {VideoDir.name} ===")
+            Stats = EmbedCrops(VideoDir / CropFolder, VideoDir / EmbedFolder, VideoDir.name, ModelId=ModelId,
+                               FallbackModelId=None, Token=Token, GroupSeconds=GroupSeconds)
+            Row.update({"Result": "done", "Crops": Stats["Crops"], "Model": Stats["Model"]})
+        Rows.append(Row)
+    if not Rows:
+        print(f"Nothing to do: every video with {CropFolder} already has up-to-date {EmbedFolder}.")
+    return pd.DataFrame(Rows)
