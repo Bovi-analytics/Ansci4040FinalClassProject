@@ -16,6 +16,7 @@ Outputs in ``OutputDir``, overwritten on every run:
 
 - ``KeptTracks.csv``: every track, whether it was kept and why not, and its
   box size relative to the typical track (``RelativeSize``)
+- ``Crop.json``: which ``Tracks.csv`` (and tracker) the crops came from
 - ``Crops.csv``: one row per crop (TrackId, Frame, TimeSeconds, CropPath, box)
 - ``Crops/Track<id>/Frame<n>.jpg``: the masked crops
 - ``Sheets/Track<id>.jpg``: all crops of one track, for checking by eye
@@ -23,6 +24,8 @@ Outputs in ``OutputDir``, overwritten on every run:
 """
 
 import gc
+import hashlib
+import json
 import shutil
 import time
 from pathlib import Path
@@ -172,6 +175,12 @@ def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=10, MinConfidence=0.4, C
     Crops = pd.DataFrame(Rows, columns=["TrackId", "Frame", "TimeSeconds", "CropPath", "X1", "Y1", "X2", "Y2",
                                         "Confidence", "MaskFraction"])
     Crops.to_csv(OutputDir / "Crops.csv", index=False)
+    # Which tracks these crops came from (step 05 checks it: SAM 2.1 tracks only).
+    (OutputDir / "Crop.json").write_text(json.dumps({
+        "TracksPath": str(TracksPath), "TracksMd5": hashlib.md5(Path(TracksPath).read_bytes()).hexdigest(),
+        "Tracker": "SAM 2.1" if "YoloIoU" in Tracks.columns else "ByteTrack",
+        "MinFrames": MinFrames, "MinConfidence": MinConfidence, "CropsPerTrack": CropsPerTrack,
+        "CropEverySeconds": CropEverySeconds, "UseMasks": UseMasks}, indent=1))
 
     Overview = []
     for TrackId, Track in Crops.groupby("TrackId"):
