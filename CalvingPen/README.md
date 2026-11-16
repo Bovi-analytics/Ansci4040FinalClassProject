@@ -72,7 +72,7 @@ The calf appears to be born around 04:15–04:16 video time.
 ## Run the pipeline on a new video (for the team)
 
 Everything runs in **`PipelineSteps.ipynb`** (one cell per step), or `RunPipeline.ipynb` for several videos at once.
-[Open PipelineSteps in Colab](https://colab.research.google.com/github/chaseshallow/Ansci4040FinalClassProject/blob/main/PipelineSteps.ipynb).
+[Open PipelineSteps in Colab](https://colab.research.google.com/github/Bovi-analytics/Ansci4040FinalClassProject/blob/main/PipelineSteps.ipynb).
 
 **What you need (once):**
 1. Access to the Shared Drive **BeastsAndBytes** > `ANSC4040GroupProject` (ask the group).
