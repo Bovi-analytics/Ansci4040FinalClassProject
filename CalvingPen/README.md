@@ -94,7 +94,7 @@ if Colab stops during cell 5, rerun it and it continues.
 
 **Long recordings:** instead of `ClipStart` / `ClipEnd`, write `ClipStart="Auto"`. Step 01 then lets YOLO scan the whole raw video
 (one key frame every 30 s, a few minutes), finds when the cow is in view, and picks up to 3 windows of 10 minutes spread over the
-recording (`<video>/Scan/CowTimeline.png`, `Windows.csv`). Each window is run as its own folder (`CalvingPen3Nov11Part1Win1`, `Win2`, ...);
+recording (`<video>/Scan/CowTimeline.png`, `Windows.csv`). Each window is run as its own folder (`CalvingPen3Nov11Cow1Win1`, `Win2`, ...);
 tracking 3 windows takes ~40 min instead of ~6 h for a whole 4.5 h recording. `Videos = AllRawVideos()` in `PipelineSteps` does this for
 every readable raw video (copies, ROI clips and broken shortcuts left out). Windows of the same pen and day get the same cow label
 until relabelled; a recording can hold different cows over time, so check the labels against the calving records.
@@ -117,8 +117,8 @@ videos are finished; nobody edits `CalvingPipeline/*.py` in Colab (changes go th
 ## Video names
 
 The calving videos get one PascalCase name pattern with **`RenameCalvingVideos.ipynb`** (run once, by one person, while nobody runs the pipeline):
-`CalvingPen<pen><Mon><DD>[Time<HHMMSS>]Part<n>[<rest>]` (no year), e.g. `2026-11-11 00-00-00 Calving Pen 3 (2).avi` → `CalvingPen3Nov11Part2.avi`,
-`2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi` → `CalvingPen3Sep26Part1Roi014200To015700Fps2.avi`.
+`CalvingPen<pen><Mon><day>Cow<n>[ROI]` (no year; the number in brackets is the cow), e.g. `2026-11-11 00-00-00 Calving Pen 3 (2).avi` → `CalvingPen3Nov11Cow2.avi`,
+`2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi` → `CalvingPen3Sep26Cow1ROI.avi`. The output folders in `CalvingPenPipelineOutputs` are renamed the same way (`2026-09-26 00-00-00 Calving Pen 2` → `CalvingPen2Sep26Cow1`).
 Only video files in `CalvingPenVideos ` and `CalvingPenPipeline` are renamed; the notebook previews first, logs every rename in
 `CalvingPenPipelineOutputs/RenameLog.csv` and can undo it. The pipeline still finds a video by its old name through that log.
 The cow is not in the file name: cows are labelled per pen, in date order: `Pen1Cow1`, `Pen1Cow2`, `Pen2Cow1`, ... (see step 06 / `Identities.csv`).

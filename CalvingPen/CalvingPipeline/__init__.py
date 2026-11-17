@@ -11,7 +11,7 @@ is one function, so it can be run for any video (any cow) from a notebook:
 | 04   | Crop.py       | CropCows       | clean tracks, pick frames, cut + mask the cow  | SAM 2.1 Small, image mode        |
 | 05   | Embed.py      | EmbedCrops     | one 384-number fingerprint per crop            | DINOv3 ViT-S/16 (fallback DINOv2)|
 | 06   | Pool.py       | BuildPool      | pool all videos, label tracks, self-check      | (reuses step 05 fingerprints)    |
-| all  | Rename.py     | PlanRenames    | rename calving videos to CalvingPen3Nov11Part2 (preview, log, undo) |  |
+| all  | Rename.py     | PlanRenames    | rename videos + output folders to CalvingPen3Nov11Cow2 |  |
 | 01-06| Pipeline.py   | RunVideo(s)    | all steps for one / many videos, then pool     | (calls the functions above)      |
 | -    | Baselines/ByteTrack.py | DetectAndTrack | old tracker, only for comparison      | YOLO26n + ByteTrack              |
 

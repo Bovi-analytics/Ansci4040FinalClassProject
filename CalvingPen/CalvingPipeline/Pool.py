@@ -11,11 +11,11 @@ video's ``Identities.csv``:
 
 Cows are labelled per pen, numbered in date order: ``Pen2Cow1``, ``Pen2Cow2``,
 ``Pen3Cow1``, ... (``CowRegister.csv`` next to the video folders remembers which
-pen, day and cow-in-video each label is). The file is created on first run with
-every track as ``Cow1`` (the video's one cow), which becomes e.g. ``Pen2Cow1``.
-For a second cow in the video write ``Cow2`` (it becomes the next free number in
-that pen), or write a full label (``Pen2Cow1``, or a farm ID) to say a track is a
-cow already known. ``Use`` = False leaves a track out (e.g. the calf).
+pen, day and cow-in-video each label is). On first run every track gets the
+cow of the video's name (``CalvingPen2Nov11Cow2`` -> cow 2 of pen 2 on Nov 11),
+which becomes e.g. ``Pen2Cow4``. For another cow in the same video write
+``Cow3`` etc. (cow 3 of that pen and day), or write a full label (``Pen2Cow1``,
+or a farm ID) to say a track is a cow already known. ``Use`` = False leaves a track out (e.g. the calf).
 Unlike the step outputs, this file is **never overwritten**: new tracks are
 appended, your edits are kept.
 
@@ -42,14 +42,13 @@ IdentityColumns = ["TrackId", "IdentityId", "Use", "Note"]
 
 
 def ParseVideo(VideoStem: str):
-    """(Pen, "Nov11") of a video folder name, old or new style, or None."""
-    from .Rename import MonthDay, Months
-    Hit = re.search(r"Pen\(?(\d+)\)?(" + "|".join(Months) + r")(\d{2})", VideoStem)          # CalvingPen3Nov11Part2
+    """(Pen, "Nov11", CowInVideo) of a video folder name, old or new style, or None.
+    CowInVideo is the ``Cow<n>`` of the name (``CalvingPen3Nov11Cow2`` -> 2), else 1."""
+    from .Rename import CalvingName, Months
+    Name = CalvingName(VideoStem)[0]                                   # any style -> CalvingPen3Nov11Cow2[ROI][Win1]
+    Hit = re.match(r"CalvingPen(\d+)(" + "|".join(Months) + r")(\d{1,2})Cow(\d+)", Name)
     if Hit:
-        return int(Hit.group(1)), Hit.group(2) + Hit.group(3)
-    Hit = re.search(r"(\d{4})-(\d{2})-(\d{2}).*?Pen\s*(\d+)", VideoStem)                  # 2026-11-11 ... Calving Pen 3
-    if Hit:
-        return int(Hit.group(4)), MonthDay(*Hit.groups()[:3])
+        return int(Hit.group(1)), f"{Hit.group(2)}{int(Hit.group(3))}", int(Hit.group(4))
     return None
 
 
@@ -91,6 +90,10 @@ def ResolveLabel(Text: str, VideoStem: str, Register):
     Video = ParseVideo(VideoStem)
     if Short and Video:
         return CowLabel(Register, Video[0], Video[1], Short.group(1), VideoStem)
+    if Text == "" and Video:                                         # new track: the cow of the file name
+        return CowLabel(Register, Video[0], Video[1], Video[2], VideoStem)
+    if Text == "":
+        return re.sub(r"\W+", "", VideoStem.title()) + "Cow1", Register
     if Short:
         return re.sub(r"\W+", "", VideoStem.title()) + f"Cow{Short.group(1)}", Register
     return Text, Register
@@ -108,7 +111,7 @@ def LoadIdentities(VideoDir: Path, TrackIds, Register):
         Table = pd.DataFrame(columns=IdentityColumns)
     New = sorted(set(int(T) for T in TrackIds) - set(Table.TrackId.astype(int)))
     if New:
-        Table = pd.concat([Table, pd.DataFrame({"TrackId": New, "IdentityId": "Cow1", "Use": True, "Note": ""})])
+        Table = pd.concat([Table, pd.DataFrame({"TrackId": New, "IdentityId": "", "Use": True, "Note": ""})])
     Labels = []
     for Text in Table.IdentityId:
         Label, Register = ResolveLabel(Text, Path(VideoDir).name, Register)
@@ -190,7 +193,7 @@ def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step05bEmbedFull", VideoStem
         raise FileNotFoundError(f"No */{EmbeddingFolder}/Embeddings.npy under {OutputRoot}")
 
     # Oldest recordings first, so cows are numbered in date order (Pen2Cow1 = first cow in pen 2).
-    Videos = sorted(Videos, key=lambda V: _DayOrder((ParseVideo(V.name) or (0, ""))[1]) + (V.name,))
+    Videos = sorted(Videos, key=lambda V: _DayOrder((ParseVideo(V.name) or (0, "", 0))[1]) + (V.name,))
     Register = LoadRegister(OutputRoot)
     AllVectors, AllIndex, Models = [], [], {}
     for VideoDir in Videos:
