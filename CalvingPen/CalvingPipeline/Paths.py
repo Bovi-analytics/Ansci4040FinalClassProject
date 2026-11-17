@@ -67,6 +67,11 @@ def FindVideo(VideoFile) -> Path:
         return VideoFile
     if (RawVideoDir / VideoFile.name).exists():
         return RawVideoDir / VideoFile.name
+    from .Rename import RenamedTo                            # renamed to the PascalCase convention?
+    Renamed = RenamedTo(VideoFile.name)
+    if Renamed is not None:
+        print(f"{VideoFile.name} was renamed to {Renamed.name}")
+        return Renamed
     Wanted, Similar = _Loose(VideoFile.name), []
     for Root, Folders, Files in os.walk(GroupDir, followlinks=True):   # followlinks: Drive shortcuts
         for File in Files:
