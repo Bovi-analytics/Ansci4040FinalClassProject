@@ -5,14 +5,17 @@ its fingerprints. Each track gets an identity (which cow it is) from the
 video's ``Identities.csv``:
 
     TrackId, IdentityId, Use, Note
-    2, Pen2_20260926_Cow01, True,
-    234, Pen2_20260926_Cow01, True, rear view
+    1, Pen2Cow1, True,
+    2, Pen2Cow2, True, second cow
     ...
 
-The file is created on first run with every track set to the video's one
-default cow (a calving pen usually holds one cow), e.g.
-``Pen2_20260926_Cow01``. Edit it in Drive / Google Sheets to give a track
-another cow, or set ``Use`` to False to leave a track out (e.g. the calf).
+Cows are labelled per pen, numbered in date order: ``Pen2Cow1``, ``Pen2Cow2``,
+``Pen3Cow1``, ... (``CowRegister.csv`` next to the video folders remembers which
+pen, day and cow-in-video each label is). The file is created on first run with
+every track as ``Cow1`` (the video's one cow), which becomes e.g. ``Pen2Cow1``.
+For a second cow in the video write ``Cow2`` (it becomes the next free number in
+that pen), or write a full label (``Pen2Cow1``, or a farm ID) to say a track is a
+cow already known. ``Use`` = False leaves a track out (e.g. the calf).
 Unlike the step outputs, this file is **never overwritten**: new tracks are
 appended, your edits are kept.
 
@@ -38,21 +41,65 @@ import pandas as pd
 IdentityColumns = ["TrackId", "IdentityId", "Use", "Note"]
 
 
-def DefaultIdentity(VideoStem: str) -> str:
-    """``2026-09-26 00-00-00 Calving Pen 2`` or ``CalvingPen2_20260926_Part1`` ->
-    ``Pen2_20260926_Cow01`` (one cow per pen and day until relabelled)."""
-    New = re.search(r"Pen\(?(\d+)\)?_(\d{8})", VideoStem)                   # renamed convention
-    if New:
-        return f"Pen{New.group(1)}_{New.group(2)}_Cow01"
-    Match = re.search(r"(\d{4})-(\d{2})-(\d{2}).*?Pen\s*(\d+)", VideoStem)
-    if Match:
-        Year, Month, Day, Pen = Match.groups()
-        return f"Pen{Pen}_{Year}{Month}{Day}_Cow01"
-    return re.sub(r"\W+", "", VideoStem.title()) + "_Cow01"
+def ParseVideo(VideoStem: str):
+    """(Pen, "Nov11") of a video folder name, old or new style, or None."""
+    from .Rename import MonthDay, Months
+    Hit = re.search(r"Pen\(?(\d+)\)?(" + "|".join(Months) + r")(\d{2})", VideoStem)          # CalvingPen3Nov11Part2
+    if Hit:
+        return int(Hit.group(1)), Hit.group(2) + Hit.group(3)
+    Hit = re.search(r"(\d{4})-(\d{2})-(\d{2}).*?Pen\s*(\d+)", VideoStem)                  # 2026-11-11 ... Calving Pen 3
+    if Hit:
+        return int(Hit.group(4)), MonthDay(*Hit.groups()[:3])
+    return None
 
 
-def LoadIdentities(VideoDir: Path, TrackIds) -> pd.DataFrame:
-    """Read ``Identities.csv``, adding any track it does not list yet."""
+def _DayOrder(Day: str) -> tuple:
+    from .Rename import Months
+    return (Months.index(Day[:3]), int(Day[3:])) if Day and Day[:3] in Months else (99, 99)
+
+
+def LoadRegister(OutputRoot) -> pd.DataFrame:
+    """``CowRegister.csv``: which cow label belongs to which pen, day and cow-in-video number."""
+    Path_ = Path(OutputRoot) / "CowRegister.csv"
+    if Path_.exists():
+        return pd.read_csv(Path_, dtype={"Day": str, "IdentityId": str, "FirstVideo": str})
+    return pd.DataFrame(columns=["Pen", "Day", "LocalCow", "IdentityId", "FirstVideo"])
+
+
+def CowLabel(Register: pd.DataFrame, Pen, Day, LocalCow, VideoStem):
+    """``Pen<pen>Cow<n>`` for cow ``LocalCow`` of that pen and day: the label it already
+    has in the register, else the next free number in that pen (Pen2Cow1, Pen2Cow2, ...)."""
+    Hit = Register[(Register.Pen.astype(int) == int(Pen)) & (Register.Day == Day) & (Register.LocalCow.astype(int) == int(LocalCow))]
+    if len(Hit):
+        return Hit.IdentityId.iloc[0], Register
+    Used = Register.IdentityId[Register.Pen.astype(int) == int(Pen)].str.extract(r"Cow(\d+)$")[0].dropna().astype(int)
+    Label = f"Pen{int(Pen)}Cow{(Used.max() if len(Used) else 0) + 1}"
+    Row = pd.DataFrame([{"Pen": int(Pen), "Day": Day, "LocalCow": int(LocalCow), "IdentityId": Label, "FirstVideo": VideoStem}])
+    return Label, pd.concat([Register, Row], ignore_index=True)
+
+
+def ResolveLabel(Text: str, VideoStem: str, Register):
+    """Turn what is written in Identities.csv into the final cow label:
+    ``Cow2`` (2nd cow of this video) or an old ``Pen2_20260926_Cow01`` -> ``Pen2Cow3``-style;
+    ``Pen2Cow3`` or anything else (e.g. a farm ID) is kept as written."""
+    from .Rename import MonthDay
+    Text = str(Text).strip()
+    Old = re.fullmatch(r"Pen(\d+)_(\d{4})(\d{2})(\d{2})_Cow(\d+)", Text)
+    if Old:
+        return CowLabel(Register, Old.group(1), MonthDay(*Old.groups()[1:4]), Old.group(5), VideoStem)
+    Short = re.fullmatch(r"Cow\s*(\d+)", Text, flags=re.I)
+    Video = ParseVideo(VideoStem)
+    if Short and Video:
+        return CowLabel(Register, Video[0], Video[1], Short.group(1), VideoStem)
+    if Short:
+        return re.sub(r"\W+", "", VideoStem.title()) + f"Cow{Short.group(1)}", Register
+    return Text, Register
+
+
+def LoadIdentities(VideoDir: Path, TrackIds, Register):
+    """Read ``Identities.csv``, add tracks it does not list yet (as ``Cow1``: one cow
+    per video until relabelled) and turn every label into its final form
+    (Pen<pen>Cow<n>). Returns (table, register)."""
     IdentityPath = Path(VideoDir) / "Identities.csv"
     if IdentityPath.exists():
         Table = pd.read_csv(IdentityPath, dtype={"IdentityId": str, "Note": str}, keep_default_na=False)
@@ -61,12 +108,18 @@ def LoadIdentities(VideoDir: Path, TrackIds) -> pd.DataFrame:
         Table = pd.DataFrame(columns=IdentityColumns)
     New = sorted(set(int(T) for T in TrackIds) - set(Table.TrackId.astype(int)))
     if New:
-        Default = DefaultIdentity(Path(VideoDir).name)
-        Table = pd.concat([Table, pd.DataFrame({"TrackId": New, "IdentityId": Default, "Use": True, "Note": ""})])
-        Table = Table.astype({"TrackId": int}).sort_values("TrackId")
+        Table = pd.concat([Table, pd.DataFrame({"TrackId": New, "IdentityId": "Cow1", "Use": True, "Note": ""})])
+    Labels = []
+    for Text in Table.IdentityId:
+        Label, Register = ResolveLabel(Text, Path(VideoDir).name, Register)
+        Labels.append(Label)
+    Changed = New or Labels != list(Table.IdentityId)
+    Table["IdentityId"] = Labels
+    Table = Table.astype({"TrackId": int}).sort_values("TrackId")
+    if Changed:
         Table[IdentityColumns].to_csv(IdentityPath, index=False)
-        print(f"  {IdentityPath.name}: added {len(New)} tracks as {Default}")
-    return Table.astype({"TrackId": int})
+        print(f"  {IdentityPath.name}: {', '.join(f'T{T}={L}' for T, L in zip(Table.TrackId, Table.IdentityId))}")
+    return Table, Register
 
 
 def FindVideos(OutputRoot, EmbeddingFolder) -> list:
@@ -136,13 +189,16 @@ def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step05bEmbedFull", VideoStem
     if not Videos:
         raise FileNotFoundError(f"No */{EmbeddingFolder}/Embeddings.npy under {OutputRoot}")
 
+    # Oldest recordings first, so cows are numbered in date order (Pen2Cow1 = first cow in pen 2).
+    Videos = sorted(Videos, key=lambda V: _DayOrder((ParseVideo(V.name) or (0, ""))[1]) + (V.name,))
+    Register = LoadRegister(OutputRoot)
     AllVectors, AllIndex, Models = [], [], {}
     for VideoDir in Videos:
         Folder = VideoDir / EmbeddingFolder
         Vectors = np.load(Folder / "Embeddings.npy")
         Index = pd.read_csv(Folder / "EmbeddingIndex.csv")
         Models[VideoDir.name] = (Folder / "Model.txt").read_text().strip()
-        Identities = LoadIdentities(VideoDir, Index.TrackId.unique())
+        Identities, Register = LoadIdentities(VideoDir, Index.TrackId.unique(), Register)
         Index = Index.merge(Identities[["TrackId", "IdentityId", "Use"]], on="TrackId", how="left")
         Keep = Index.Use.astype(bool).to_numpy().copy()
         if SkipNearDuplicates and "NearDuplicate" in Index:
@@ -152,6 +208,7 @@ def BuildPool(OutputRoot, PoolDir, EmbeddingFolder="Step05bEmbedFull", VideoStem
         AllVectors.append(Vectors[Keep])
         AllIndex.append(Index[Keep])
 
+    Register.to_csv(OutputRoot / "CowRegister.csv", index=False)
     if len(set(Models.values())) > 1:
         raise ValueError(f"Fingerprints come from different models, cannot pool them: {Models}. "
                          "Rerun step 05 so every video uses the same model.")

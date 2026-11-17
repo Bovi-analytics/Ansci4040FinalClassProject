@@ -46,10 +46,10 @@ None of the models were trained on our cows; all are used as downloaded.
 | **Embedding / fingerprint** | The 384 numbers a model computes from a crop |
 | **Cosine similarity** | How alike two fingerprints are: about 1 = look the same, lower = look different |
 | **Pool / gallery** | Fingerprints of cows whose identity we know (or have labelled locally) |
-| **IdentityId** | The cow label a track gets in the pool, e.g. `Pen2_20260926_Cow01` (pen, date, cow number); set per track in the video's `Identities.csv` |
+| **IdentityId** | The cow label a track gets in the pool, e.g. `Pen2Cow1` (pen, then the cows of that pen numbered in date order); set per track in the video's `Identities.csv`, remembered in `CowRegister.csv` |
 | **Self-check** | Hide one track, find the closest crops among all the others: does it land on the same cow? (leave-one-track-out) |
 | **Re-ID** | Re-identification: deciding which known cow a new crop shows |
-| **AnimalId** | The farm's ID for a cow. Unknown for the reference cow, so she is labelled locally as `Pen2_20260926_Cow01` |
+| **AnimalId** | The farm's ID for a cow. Unknown for the reference cow, so she is labelled locally as `Pen2Cow1` |
 
 ## What we found on the reference clip
 
@@ -110,11 +110,11 @@ videos are finished; nobody edits `CalvingPipeline/*.py` in Colab (changes go th
 ## Video names
 
 The calving videos get one PascalCase name pattern with **`RenameCalvingVideos.ipynb`** (run once, by one person, while nobody runs the pipeline):
-`CalvingPen<pen>_<YYYYMMDD>[_<HHMMSS>]_Part<n>[_<rest>]`, e.g. `2026-11-11 00-00-00 Calving Pen 3 (2).avi` → `CalvingPen3_20261111_Part2.avi`,
-`2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi` → `CalvingPen3_20260926_Part1_Roi_014200_To_015700_2Fps.avi`.
+`CalvingPen<pen><Mon><DD>[Time<HHMMSS>]Part<n>[<rest>]` (no year), e.g. `2026-11-11 00-00-00 Calving Pen 3 (2).avi` → `CalvingPen3Nov11Part2.avi`,
+`2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi` → `CalvingPen3Sep26Part1Roi014200To015700Fps2.avi`.
 Only video files in `CalvingPenVideos ` and `CalvingPenPipeline` are renamed; the notebook previews first, logs every rename in
 `CalvingPenPipelineOutputs/RenameLog.csv` and can undo it. The pipeline still finds a video by its old name through that log.
-The cow is not in the file name: cows are numbered per track in each video's `Identities.csv` (`Pen3_20261111_Cow01`, `Cow02`, ...).
+The cow is not in the file name: cows are labelled per pen, in date order: `Pen1Cow1`, `Pen1Cow2`, `Pen2Cow1`, ... (see step 06 / `Identities.csv`).
 Use the new name without `.avi` as `VideoStem` for videos run from now on.
 
 ## Hugging Face token for DINOv3 (step 05)
@@ -197,5 +197,5 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 - A calf touching the cow (e.g. being licked) can end up inside her SAM mask (step 04).
 - The fingerprint depends strongly on pose (standing vs. lying); see the step 05 result above.
 - The reference clip has one cow, so Re-ID needs crops from other videos (or the milking-parlor group) to tell cows apart.
-- The cow's AnimalId is unknown; she is labelled locally (`Pen2_20260926_Cow01`) until it can be linked.
+- The cow's AnimalId is unknown; she is labelled locally (`Pen2Cow1`) until it can be linked.
 - The raw videos were renamed on Drive (Nov 2026); step 01's `VideoPath` must be set to the new name before preparing a new clip.
