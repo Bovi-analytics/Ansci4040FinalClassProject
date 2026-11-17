@@ -1,39 +1,39 @@
-"""Give the calving videos one PascalCase naming convention, safely.
+"""Give the calving videos (and their output folders) one naming convention, safely.
 
-The raw files have many name styles, e.g.
+The rule (agreed by the group, from RenameCalvingVideos.ipynb):
 
-    2026-11-11 00-00-00 Calving Pen 3 (2).avi
-    2026-09-26-CalvingPen3(1).avi
-    2026-10-29_09-48-06_Calving_Pen_2_(3)ROI.mp4
-    2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi
+    CalvingPen<pen><Mon><day>Cow<n>[ROI]
 
-``CalvingName`` turns each into one pattern, keeping the pen, the date (month
-and day), the start time (only when it is not midnight) and the part number:
+- ``<pen>``: the pen number; ``<Mon><day>``: month and day, no year, day
+  without a leading zero (``Nov11``, ``Sep6``); no start time,
+- ``Cow<n>``: the recording number in brackets in the old name (``Pen 3 (2)``
+  -> ``Cow2``), 1 if there is none,
+- ``ROI``: added when the old name contains ROI (a cropped clip).
 
-    CalvingPen3Nov11Part2.avi
-    CalvingPen3Sep26Part1.avi
-    CalvingPen2Oct29Time094806Part3Roi.mp4
-    CalvingPen3Sep26Part1Roi014200To015700Fps2.avi
+    2026-11-11 00-00-00 Calving Pen 3 (2).avi                   -> CalvingPen3Nov11Cow2.avi
+    2026-11-11 00-00-00 Calving Pen 3.avi                       -> CalvingPen3Nov11Cow1.avi
+    2026-10-29 09-48-06 Calving Pen 2 (3).avi                   -> CalvingPen2Oct29Cow3.avi
+    2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi -> CalvingPen3Sep26Cow1ROI.avi
 
-Pure PascalCase: every number has a word in front of it (Pen, month, Time,
-Part, ...), so numbers never run together. The year is left out (one season);
-the day has two digits (Nov01) so names sort by date. The cow is not in the
-file name: cows are labelled Pen1Cow1, Pen1Cow2, ... in each video's
-``Identities.csv`` (Pool.py). ``Brackets=True``: ``CalvingPen(3)Nov11Part(2).avi``. A file without a
-date or pen in its name only gets PascalCase and is marked ``Check``.
+Names with ``Clip`` (``2026-09-26-Clip1Pen2(4:37hrs).avi``) or without a date
+or pen are marked ``Check`` and left alone (rename by hand). Two files that would
+get the same name (e.g. two ROI clips of one video, a "Copy of ...") are marked
+``Conflict`` and left alone.
+
+**Output folders** in ``CalvingPenPipelineOutputs`` get the same rule
+(``2026-09-26 00-00-00 Calving Pen 2`` -> ``CalvingPen2Sep26Cow1``; a window
+folder keeps its ``Win1`` ending), and the paths and names stored inside them
+(settings files, ``EmbeddingIndex.csv``) are updated, so finished steps stay
+finished.
 
 Safe by design:
 
-- ``PlanRenames`` only **previews** (old name, new name, status); nothing changes,
-- ``ApplyRenames`` renames only rows with status ``Rename`` (in two passes via
-  temporary names, so two files can swap names), and appends every rename to
-  ``RenameLog.csv`` (time, folder, old, new),
-- ``UndoRenames`` puts the names from the log back,
-- ``FindVideo`` (Paths.py) also finds a video by its **old** name through the
-  log, so notebooks with old names keep working.
-
-Only video files are touched (``.avi .mp4 .mov .mkv``); notebooks, spreadsheets
-and pipeline outputs keep their names, so nothing that refers to them breaks.
+- ``PlanRenames`` / ``PlanFolderRenames`` only **preview** (old name, new name, status),
+- ``ApplyRenames`` renames only rows with status ``Rename`` (two passes via
+  temporary names) and appends every rename to ``RenameLog.csv``,
+- ``UndoRenames`` puts the names from the log back (folders included),
+- ``FindVideo`` (Paths.py) finds a video by its old name through the log, and
+  by its new name before it was renamed.
 """
 
 import re
@@ -46,70 +46,43 @@ import pandas as pd
 from .Paths import GroupDir, OutputRoot, VideoTypes
 
 RenameLog = OutputRoot / "RenameLog.csv"
+LogColumns = ["Time", "Folder", "OldName", "NewName"]
 Months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-NewStyle = re.compile(r"^CalvingPen(\d+|\(\d+\))(" + "|".join(Months) + r")\d{2}(Time\d{6})?Part(\d+|\(\d+\))([A-Z][A-Za-z0-9]*)*$")
+NewStyle = re.compile(r"^CalvingPen(\d+)(" + "|".join(Months) + r")(\d{1,2})Cow(\d+)(ROI)?(Win\d+)?$")
+PartStyle = re.compile(r"^CalvingPen\(?(\d+)\)?(" + "|".join(Months) + r")(\d{1,2})(?:Time\d{6})?Part\(?(\d+)\)?(.*)$")
 
 
 def MonthDay(Year, Month, Day) -> str:
-    """("2026", "11", "01") -> "Nov01" (no year: all recordings are from one season)."""
-    return f"{Months[int(Month) - 1]}{int(Day):02d}"
-LogColumns = ["Time", "Folder", "OldName", "NewName"]
-
-
-def _Pascal(Text: str) -> list:
-    """Words / numbers of a leftover name part, PascalCase, time-like groups joined
-    (01-42-00 -> 014200)."""
-    Text = re.sub(r"(\d{2})[-:_](\d{2})[-:_](\d{2})", r"\1\2\3", Text)
-    Text = re.sub(r"(\d+):(\d{2})\s*hrs?", r"Length\1h\2m", Text, flags=re.I)    # "4:37hrs" -> Length4h37m
-    Words = []
-    for W in re.findall(r"[A-Za-z0-9]+", Text):
-        Digits = re.match(r"\d*", W).group()
-        if Digits and W[len(Digits):]:            # "2FPS" -> "Fps2": a word always comes before its number
-            Words.append(W[len(Digits):].capitalize() + Digits)
-        elif Digits:                              # a bare number: glue it to the word before, else label it
-            if Words and not Words[-1][-1].isdigit():
-                Words[-1] += Digits
-            else:
-                Words.append("No" + Digits)
-        else:
-            Words.append(W[0].upper() + W[1:].lower())
-    return Words
+    """("2026", "11", "01") -> "Nov1" (no year, no leading zero)."""
+    return f"{Months[int(Month) - 1]}{int(Day)}"
 
 
 def CalvingName(FileName: str, Brackets=False) -> tuple:
-    """``(NewName, Status)`` for one file name; Status is "Ok" or "Check"
-    (no date or pen found: only made PascalCase)."""
+    """``(NewName, Status)`` for one file or folder name; Status "Ok" or "Check".
+    (``Brackets`` is ignored; kept so older notebooks still run.)"""
     P = Path(FileName)
-    Ext, Stem = P.suffix.lower(), P.stem
-    if NewStyle.match(Stem):                       # already in the convention: keep it
-        return Stem + Ext, "Ok"
-    Stem = re.sub(r"^\s*Copy of\s+", "", Stem, flags=re.I)
-    IsCopy = Stem != P.stem
-    Date = re.search(r"(20\d{2})[-_ ]?(\d{2})[-_ ]?(\d{2})", Stem)
-    Pen = re.search(r"Pen[\s_-]*\(?(\d+)\)?", Stem, flags=re.I)
-    if not (Date and Pen):
-        Words = _Pascal(Stem) + (["Copy"] if IsCopy else [])
-        return "".join(Words) + Ext, "Check"
-    Rest = Stem
-    Time = re.match(r"[\s_-]*(\d{2})[-_:](\d{2})[-_:](\d{2})", Stem[Date.end():])
-    TimeText = "" if not Time or Time.groups() == ("00", "00", "00") else "".join(Time.groups())
-    # Part: a number in brackets right after the pen, e.g. "Pen 3 (2)" / "Pen2_(3)"
-    PartMatch = re.match(r"[\s_-]*\(\s*(\d+)\s*\)", Stem[Pen.end():])
-    ClipMatch = re.search(r"Clip\s*(\d+)", Stem, flags=re.I)        # "Clip1Pen2" = part 1
-    Part = PartMatch.group(1) if PartMatch else (ClipMatch.group(1) if ClipMatch else "1")
-    # Everything else (ROI, time window, fps, ...) is kept, in PascalCase.
-    Cut = [Date.span(), Pen.span()]
-    if Time:
-        Cut.append((Date.end(), Date.end() + Time.end()))
-    if PartMatch:
-        Cut.append((Pen.end(), Pen.end() + PartMatch.end()))
-    for Start, End in sorted(Cut, reverse=True):
-        Rest = Rest[:Start] + " " + Rest[End:]
-    Rest = re.sub(r"Calving|Clip\s*\d*", " ", Rest, flags=re.I)
-    PenText, PartText = (f"({Pen.group(1)})", f"({Part})") if Brackets else (Pen.group(1), Part)
-    Fields = [f"CalvingPen{PenText}", MonthDay(*Date.groups())] + ([f"Time{TimeText}"] if TimeText else [])
-    Fields += [f"Part{PartText}"] + _Pascal(Rest) + (["Copy"] if IsCopy else [])
-    return "".join(Fields) + Ext, "Ok"
+    Ext = P.suffix.lower() if P.suffix.lower() in VideoTypes else ""
+    Name = P.stem if Ext else P.name
+    Win = re.search(r"(Win\d+)$", Name)
+    WinText = Win.group(1) if Win else ""
+    if NewStyle.match(Name):                                   # already in the convention
+        return Name + Ext, "Ok"
+    Old = PartStyle.match(Name)                                # the short-lived CalvingPen3Nov11Part1 style
+    if Old:
+        Pen, Mon, Day, Part, Rest = Old.groups()
+        Roi = "ROI" if re.search(r"roi", Rest, re.I) else ""
+        return f"CalvingPen{Pen}{Mon}{int(Day)}Cow{Part}{Roi}{WinText}" + Ext, "Ok"
+    if re.search(r"Clip\d+", Name, re.I):                     # clip files need a person to decide
+        return Name + Ext, "Check"
+    PenMatch = re.search(r"Calving[\s_-]*Pen[\s_-]*(\d+)|Pen[\s_-]*(\d+)", Name, re.I)
+    DateMatch = re.search(r"(\d{4})[-_](\d{2})[-_](\d{2})", Name)
+    if not (PenMatch and DateMatch) or not (1 <= int(DateMatch.group(2)) <= 12):
+        return Name + Ext, "Check"
+    Pen = next(G for G in PenMatch.groups() if G is not None)
+    CowMatch = re.search(r"\((\d+)\)", Name)                 # recording number in brackets = cow number
+    Cow = int(CowMatch.group(1)) if CowMatch else 1
+    Roi = "ROI" if re.search(r"ROI", Name, re.I) else ""
+    return f"CalvingPen{Pen}{MonthDay(*DateMatch.groups())}Cow{Cow}{Roi}{WinText}" + Ext, "Ok"
 
 
 def PlanRenames(Folders, Brackets=False, Recursive=True) -> pd.DataFrame:
@@ -128,21 +101,60 @@ def PlanRenames(Folders, Brackets=False, Recursive=True) -> pd.DataFrame:
         for P in sorted(Files):
             if P.suffix.lower() not in VideoTypes or P.name.startswith(".rename_temp_"):
                 continue
-            New, Status = CalvingName(P.name, Brackets)
+            New, Status = CalvingName(P.name)
             try:
                 P.stat()
             except OSError:
                 Status = "Unreadable"
             Rows.append({"Folder": str(P.parent.relative_to(GroupDir)) if P.is_relative_to(GroupDir) else str(P.parent),
                          "OldName": P.name, "NewName": New,
-                         "Status": "Same" if New == P.name else ("Rename" if Status == "Ok" else Status)})
-    Plan = pd.DataFrame(Rows, columns=["Folder", "OldName", "NewName", "Status"])
+                         "Status": Status if Status != "Ok" else ("Same" if New == P.name else "Rename")})
+    return _MarkConflicts(pd.DataFrame(Rows, columns=["Folder", "OldName", "NewName", "Status"]))
+
+
+def PlanFolderRenames(Root=None) -> pd.DataFrame:
+    """Preview for the video folders in ``CalvingPenPipelineOutputs`` (Pool, PoolTest,
+    Old and files are left out): same rule and statuses as ``PlanRenames``."""
+    Root = Path(Root or OutputRoot)
+    Rows = []
+    for P in sorted(Root.iterdir()):
+        if not P.is_dir() or P.name in ("Pool", "PoolTest", "Old") or P.name.startswith("."):
+            continue
+        New, Status = CalvingName(P.name)
+        Rows.append({"Folder": str(Root.relative_to(GroupDir)) if Root.is_relative_to(GroupDir) else str(Root),
+                     "OldName": P.name, "NewName": New,
+                     "Status": Status if Status != "Ok" else ("Same" if New == P.name else "Rename")})
+    return _MarkConflicts(pd.DataFrame(Rows, columns=["Folder", "OldName", "NewName", "Status"]))
+
+
+def _MarkConflicts(Plan):
     if len(Plan):   # two files would get the same name, or the name is already taken by another file
         Key = Plan.Folder + "/" + Plan.NewName
         Twice = Key.duplicated(keep=False) & Plan.Status.eq("Rename")
+        for _, Group in Plan[Twice].groupby(Key[Twice]):          # an original and its "Copy of ...": rename the original
+            Originals = Group.index[~Group.OldName.str.match(r"(?i)\s*copy of")]
+            if len(Originals) == 1:
+                Twice[Originals[0]] = False
         Taken = Plan.apply(lambda R: R.Status == "Rename" and (GroupDir / R.Folder / R.NewName).exists(), axis=1)
         Plan.loc[Twice | Taken, "Status"] = "Conflict"
     return Plan
+
+
+def _FixFolder(Dir, OldName, NewName):
+    """After a video folder was renamed: update the paths stored in its settings
+    files and the VideoStem column of its fingerprint index, so finished steps
+    are still recognised as finished."""
+    Dir = Path(Dir)
+    for Json in Dir.rglob("*.json"):
+        Text = Json.read_text()
+        Fixed = Text.replace(f"/{OldName}/", f"/{NewName}/").replace(f"/{OldName}\"", f"/{NewName}\"")
+        if Fixed != Text:
+            Json.write_text(Fixed)
+    for Index in Dir.glob("Step05*/EmbeddingIndex.csv"):
+        Table = pd.read_csv(Index)
+        if "VideoStem" in Table:
+            Table["VideoStem"] = Table.VideoStem.replace(OldName, NewName)
+            Table.to_csv(Index, index=False)
 
 
 def ApplyRenames(Plan: pd.DataFrame, LogPath=RenameLog) -> pd.DataFrame:
@@ -157,13 +169,15 @@ def ApplyRenames(Plan: pd.DataFrame, LogPath=RenameLog) -> pd.DataFrame:
     Done = []
     for Temp, New, R in Temporary:                     # pass 2: to the new names
         Temp.rename(New)
+        if New.is_dir():
+            _FixFolder(New, R.OldName, R.NewName)
         Done.append({"Time": time.strftime("%Y-%m-%d %H:%M:%S"), "Folder": R.Folder,
                      "OldName": R.OldName, "NewName": R.NewName})
     Done = pd.DataFrame(Done, columns=LogColumns)
     if len(Done):
         Path(LogPath).parent.mkdir(parents=True, exist_ok=True)
         Done.to_csv(LogPath, mode="a", index=False, header=not Path(LogPath).exists())
-    print(f"Renamed {len(Done)} files; logged in {LogPath}")
+    print(f"Renamed {len(Done)}; logged in {LogPath}")
     return Done
 
 
@@ -177,6 +191,8 @@ def UndoRenames(LogPath=RenameLog, Since=None) -> int:
         New, Old = GroupDir / R.Folder / R.NewName, GroupDir / R.Folder / R.OldName
         if New.exists() and not Old.exists():
             New.rename(Old)
+            if Old.is_dir():
+                _FixFolder(Old, R.NewName, R.OldName)
             Count += 1
     Log.drop(Undo.index).to_csv(LogPath, index=False)
     print(f"Put {Count} names back")

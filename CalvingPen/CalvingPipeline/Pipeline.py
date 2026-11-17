@@ -192,7 +192,7 @@ def ExpandAuto(Videos, OutputRoot=None, AllowScan=True, EverySeconds=30, WindowM
     """Replace every video with ``ClipStart="Auto"`` by its automatically chosen
     windows (``Scan.AutoWindows``), one entry each: VideoStem ``<stem>Win1``,
     ``Win2``, ... Other videos are passed through. The stem defaults to the
-    PascalCase name of the file (``CalvingPen3Nov11Part1``). With
+    new-style name of the file (``CalvingPen3Nov11Cow1``). With
     ``AllowScan=False`` a video that was never scanned is returned marked
     ``NeedsScan`` (the scan runs in the step 01 cell)."""
     import pandas as pd
