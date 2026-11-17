@@ -59,6 +59,8 @@ def FindVideo(VideoFile) -> Path:
     """Full path of a video from its file name (or a full path): first in the
     calving videos folder, then anywhere in the group folder, also through
     Drive shortcuts; case, double spaces and the extension do not matter.
+    Old names work after renaming (RenameLog.csv) and new PascalCase names
+    (CalvingPen3Nov11Part1.avi) work before renaming.
     Raises with the videos that are there if it cannot be found."""
     import os
 
@@ -72,12 +74,16 @@ def FindVideo(VideoFile) -> Path:
     if Renamed is not None:
         print(f"{VideoFile.name} was renamed to {Renamed.name}")
         return Renamed
+    from .Rename import CalvingName
     Wanted, Similar = _Loose(VideoFile.name), []
     for Root, Folders, Files in os.walk(GroupDir, followlinks=True):   # followlinks: Drive shortcuts
+        Folders[:] = [F for F in Folders if F != OutputRoot.name]        # skip the pipeline outputs (thousands of crops)
+        Folders.sort(key=lambda F: (F != RawVideoDir.name, not F.startswith("Calving"), F))
         for File in Files:
             if Path(File).suffix.lower() not in VideoTypes:
                 continue
-            if _Loose(File) == Wanted:
+            # the name itself, or its new PascalCase name (CalvingPen3Nov11Part1) before it was renamed
+            if _Loose(File) == Wanted or _Loose(CalvingName(File)[0]) == Wanted:
                 return Path(Root) / File
             if Wanted[:10] and _Loose(File).startswith(Wanted[:10]):
                 Similar.append(str(Path(Root) / File))

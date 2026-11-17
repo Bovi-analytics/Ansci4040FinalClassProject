@@ -5,6 +5,7 @@ is one function, so it can be run for any video (any cow) from a notebook:
 |------|---------------|----------------|------------------------------------------------|----------------------------------|
 | all  | Paths.py      |                | Shared Drive locations of videos and outputs   |                                  |
 | 01   | VideoTools.py | PrepareClips   | probe a video, cut the window with the cow     | ffmpeg / ffprobe                 |
+| 01a  | Scan.py       | AutoWindows    | YOLO scans a whole raw video, picks cow windows | YOLO26n on key frames       |
 | 02   | Detect.py     | DetectCows     | box every cow in every sampled frame           | YOLO26n (COCO "cow" class)       |
 | 03   | Track.py      | TrackCows      | follow each cow's outline through the clip     | SAM 2.1 Small, video mode        |
 | 04   | Crop.py       | CropCows       | clean tracks, pick frames, cut + mask the cow  | SAM 2.1 Small, image mode        |

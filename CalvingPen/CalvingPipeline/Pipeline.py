@@ -96,8 +96,9 @@ def RunVideos(Videos, Test=False, Pool=True, OutputRoot=None, HfToken=None, Excl
 
     OutputRoot = Path(OutputRoot or DefaultOutputRoot)
     Results, Failed = {}, {}
+    Videos = ExpandAuto(Videos, OutputRoot)          # ClipStart="Auto": scan, then one run per window
     for Video in Videos:
-        Video = dict(Video)
+        Video = {K: V for K, V in Video.items() if K not in ("FromScan", "NeedsScan")}
         Stem = Video.pop("VideoStem", None) or Path(Video.get("VideoFile", "")).stem
         try:
             Results[Stem] = RunVideo(Stem, Test=Test, OutputRoot=OutputRoot, HfToken=HfToken, **Video, **Settings)
@@ -184,3 +185,49 @@ def StepDone(Step, VideoDir, Test=False, **Settings) -> bool:
     if Step == 5:
         return EmbedUpToDate(VideoDir, F[4], F[5])
     return False
+
+
+def ExpandAuto(Videos, OutputRoot=None, AllowScan=True, EverySeconds=30, WindowMinutes=10, Windows=3,
+               MinCowShare=0.8, Rescan=False) -> list:
+    """Replace every video with ``ClipStart="Auto"`` by its automatically chosen
+    windows (``Scan.AutoWindows``), one entry each: VideoStem ``<stem>Win1``,
+    ``Win2``, ... Other videos are passed through. The stem defaults to the
+    PascalCase name of the file (``CalvingPen3Nov11Part1``). With
+    ``AllowScan=False`` a video that was never scanned is returned marked
+    ``NeedsScan`` (the scan runs in the step 01 cell)."""
+    import pandas as pd
+
+    from .Paths import FindVideo
+    from .Rename import CalvingName
+    from .Scan import AutoWindows
+
+    OutputRoot = Path(OutputRoot or DefaultOutputRoot)
+    Out = []
+    for V in Videos:
+        if str(V.get("ClipStart", "")).lower() != "auto":
+            Out.append(V)
+            continue
+        Base = V.get("VideoStem") or Path(CalvingName(Path(V["VideoFile"]).name)[0]).stem
+        ScanDir = OutputRoot / Base / "Scan"
+        if AllowScan:
+            Picked = AutoWindows(FindVideo(V["VideoFile"]), ScanDir, EverySeconds=EverySeconds,
+                                 WindowMinutes=WindowMinutes, Windows=Windows, MinCowShare=MinCowShare, Rescan=Rescan)
+        elif (ScanDir / "Windows.csv").exists():
+            Picked = pd.read_csv(ScanDir / "Windows.csv")
+        else:
+            Out.append(dict(V, VideoStem=Base, NeedsScan=True))
+            continue
+        for W in Picked.itertuples():
+            Out.append({"VideoFile": V["VideoFile"], "VideoStem": f"{Base}Win{W.Window}",
+                        "ClipStart": W.ClipStart, "ClipEnd": W.ClipEnd, "FromScan": Base})
+    return Out
+
+
+def AllRawVideos(Folder=None) -> list:
+    """Every readable raw calving video in the videos folder as an "Auto" entry
+    (leaves out copies, ROI clips and broken shortcuts)."""
+    from .Paths import ListVideos
+
+    Table = ListVideos(Folder, WithDuration=False)
+    Keep = Table.SizeGb.notna() & ~Table.VideoFile.str.contains(r"copy|roi", case=False)
+    return [dict(VideoFile=F, ClipStart="Auto") for F in Table.VideoFile[Keep]]
