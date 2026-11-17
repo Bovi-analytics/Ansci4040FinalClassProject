@@ -39,7 +39,11 @@ IdentityColumns = ["TrackId", "IdentityId", "Use", "Note"]
 
 
 def DefaultIdentity(VideoStem: str) -> str:
-    """``2026-09-26 00-00-00 Calving Pen 2`` -> ``Pen2_20260926_Cow01``."""
+    """``2026-09-26 00-00-00 Calving Pen 2`` or ``CalvingPen2_20260926_Part1`` ->
+    ``Pen2_20260926_Cow01`` (one cow per pen and day until relabelled)."""
+    New = re.search(r"Pen\(?(\d+)\)?_(\d{8})", VideoStem)                   # renamed convention
+    if New:
+        return f"Pen{New.group(1)}_{New.group(2)}_Cow01"
     Match = re.search(r"(\d{4})-(\d{2})-(\d{2}).*?Pen\s*(\d+)", VideoStem)
     if Match:
         Year, Month, Day, Pen = Match.groups()

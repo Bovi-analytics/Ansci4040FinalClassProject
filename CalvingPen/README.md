@@ -107,6 +107,16 @@ videos are finished; nobody edits `CalvingPipeline/*.py` in Colab (changes go th
 | `HF_TOKEN: not set` | add the token to Colab Secrets (below) and turn on notebook access |
 | Old code after an update | **Runtime > Disconnect and delete runtime**, then run again from cell 1 |
 
+## Video names
+
+The calving videos get one PascalCase name pattern with **`RenameCalvingVideos.ipynb`** (run once, by one person, while nobody runs the pipeline):
+`CalvingPen<pen>_<YYYYMMDD>[_<HHMMSS>]_Part<n>[_<rest>]`, e.g. `2026-11-11 00-00-00 Calving Pen 3 (2).avi` → `CalvingPen3_20261111_Part2.avi`,
+`2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi` → `CalvingPen3_20260926_Part1_Roi_014200_To_015700_2Fps.avi`.
+Only video files in `CalvingPenVideos ` and `CalvingPenPipeline` are renamed; the notebook previews first, logs every rename in
+`CalvingPenPipelineOutputs/RenameLog.csv` and can undo it. The pipeline still finds a video by its old name through that log.
+The cow is not in the file name: cows are numbered per track in each video's `Identities.csv` (`Pen3_20261111_Cow01`, `Cow02`, ...).
+Use the new name without `.avi` as `VideoStem` for videos run from now on.
+
 ## Hugging Face token for DINOv3 (step 05)
 
 Step 05 uses **DINOv3**, which Meta shares on Hugging Face only after you accept its license. Each person who runs step 05 (in `Step05*`, `PipelineSteps` or `RunPipeline`) needs their own free token, set up once:
