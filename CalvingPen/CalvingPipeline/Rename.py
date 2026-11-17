@@ -7,15 +7,19 @@ The raw files have many name styles, e.g.
     2026-10-29_09-48-06_Calving_Pen_2_(3)ROI.mp4
     2026-09-26-CalvingPen3(1)_ROI_01-42-00_to_01-57-00_2FPS.avi
 
-``CalvingName`` turns each into one pattern, keeping the date, the start
-time (only when it is not midnight), the pen and the part number:
+``CalvingName`` turns each into one pattern, keeping the pen, the date (month
+and day), the start time (only when it is not midnight) and the part number:
 
-    CalvingPen3_20261111_Part2.avi
-    CalvingPen3_20260926_Part1.avi
-    CalvingPen2_20261029_094806_Part3_Roi.mp4
-    CalvingPen3_20260926_Part1_Roi_014200_To_015700_2Fps.avi
+    CalvingPen3Nov11Part2.avi
+    CalvingPen3Sep26Part1.avi
+    CalvingPen2Oct29Time094806Part3Roi.mp4
+    CalvingPen3Sep26Part1Roi014200To015700Fps2.avi
 
-(``Brackets=True``: ``CalvingPen(3)_20261111_Part(2).avi``.) A file without a
+Pure PascalCase: every number has a word in front of it (Pen, month, Time,
+Part, ...), so numbers never run together. The year is left out (one season);
+the day has two digits (Nov01) so names sort by date. The cow is not in the
+file name: cows are labelled Pen1Cow1, Pen1Cow2, ... in each video's
+``Identities.csv`` (Pool.py). ``Brackets=True``: ``CalvingPen(3)Nov11Part(2).avi``. A file without a
 date or pen in its name only gets PascalCase and is marked ``Check``.
 
 Safe by design:
@@ -42,7 +46,13 @@ import pandas as pd
 from .Paths import GroupDir, OutputRoot, VideoTypes
 
 RenameLog = OutputRoot / "RenameLog.csv"
-NewStyle = re.compile(r"^CalvingPen(\d+|\(\d+\))_\d{8}(_\d{6})?_Part(\d+|\(\d+\))(_[A-Za-z0-9]+)*$")
+Months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+NewStyle = re.compile(r"^CalvingPen(\d+|\(\d+\))(" + "|".join(Months) + r")\d{2}(Time\d{6})?Part(\d+|\(\d+\))([A-Z][A-Za-z0-9]*)*$")
+
+
+def MonthDay(Year, Month, Day) -> str:
+    """("2026", "11", "01") -> "Nov01" (no year: all recordings are from one season)."""
+    return f"{Months[int(Month) - 1]}{int(Day):02d}"
 LogColumns = ["Time", "Folder", "OldName", "NewName"]
 
 
@@ -54,7 +64,15 @@ def _Pascal(Text: str) -> list:
     Words = []
     for W in re.findall(r"[A-Za-z0-9]+", Text):
         Digits = re.match(r"\d*", W).group()
-        Words.append(Digits + W[len(Digits):].capitalize() if Digits else W[0].upper() + W[1:].lower())
+        if Digits and W[len(Digits):]:            # "2FPS" -> "Fps2": a word always comes before its number
+            Words.append(W[len(Digits):].capitalize() + Digits)
+        elif Digits:                              # a bare number: glue it to the word before, else label it
+            if Words and not Words[-1][-1].isdigit():
+                Words[-1] += Digits
+            else:
+                Words.append("No" + Digits)
+        else:
+            Words.append(W[0].upper() + W[1:].lower())
     return Words
 
 
@@ -89,9 +107,9 @@ def CalvingName(FileName: str, Brackets=False) -> tuple:
         Rest = Rest[:Start] + " " + Rest[End:]
     Rest = re.sub(r"Calving|Clip\s*\d*", " ", Rest, flags=re.I)
     PenText, PartText = (f"({Pen.group(1)})", f"({Part})") if Brackets else (Pen.group(1), Part)
-    Fields = [f"CalvingPen{PenText}", "".join(Date.groups())] + ([TimeText] if TimeText else []) + [f"Part{PartText}"]
-    Fields += _Pascal(Rest) + (["Copy"] if IsCopy else [])
-    return "_".join(Fields) + Ext, "Ok"
+    Fields = [f"CalvingPen{PenText}", MonthDay(*Date.groups())] + ([f"Time{TimeText}"] if TimeText else [])
+    Fields += [f"Part{PartText}"] + _Pascal(Rest) + (["Copy"] if IsCopy else [])
+    return "".join(Fields) + Ext, "Ok"
 
 
 def PlanRenames(Folders, Brackets=False, Recursive=True) -> pd.DataFrame:
