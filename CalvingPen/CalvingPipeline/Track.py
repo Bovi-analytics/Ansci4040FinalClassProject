@@ -33,7 +33,8 @@ How:
 the run stops (Colab disconnects, GPU time runs out), run it again with the
 same settings and it continues from the first unfinished chunk. Otherwise it
 overwrites: a finished run, changed settings, new step 02 boxes or
-``Resume=False`` all start over.
+``Resume=False`` all start over (``RedoFinished=False`` keeps a finished run
+with the same settings and boxes, e.g. when looping over many videos).
 
 Outputs in ``OutputDir`` (rebuilt from the chunks at the end of every run);
 ``Tracks.csv`` has one row per animal per frame, as step 04 expects:
@@ -258,7 +259,7 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
 def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=None, ChunkSeconds=120,
               SeedConfidence=0.4, SegModel="sam2.1_s.pt", ImageSize=1024, LinkIou=0.3, CompareTracksPath=None,
               CarryOver=True, Half=False, Preview=True, PreviewSpeed=4, PreviewWidth=960, Resume=True,
-              WorkDir=None) -> dict:
+              RedoFinished=True, WorkDir=None) -> dict:
     """Track the span step 02 covered (or ``StartSeconds``..``EndSeconds`` inside it)."""
     OutputDir, ChunkDir = Path(OutputDir), Path(OutputDir) / "Chunks"
     OutputDir.mkdir(parents=True, exist_ok=True)
@@ -282,7 +283,7 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
     Same = SettingsPath.exists() and json.loads(SettingsPath.read_text()) == Settings
     Total = len(np.arange(StartSeconds, EndSeconds - 1e-6, ChunkSeconds))
     Finished = Same and all((ChunkDir / f"Chunk{N:03d}.json").exists() for N in range(1, Total + 1))
-    if not (Resume and Same) or Finished:
+    if not (Resume and Same) or (Finished and RedoFinished):
         if ChunkDir.exists():
             print("Starting over: " + ("Resume=False" if not Resume else
                                        "the last run finished" if Finished else "settings or step 02 boxes changed"))
