@@ -157,3 +157,30 @@ def VideoStatus(OutputRoot=None, Test=False):
               f"{int(Status.Embed05UpToDate.sum())} with up-to-date {DinoV3.split('/')[-1]} fingerprints; "
               f"{int(Status.InPool06.sum())} in {F[6]}/")
     return Status
+
+
+def StepDone(Step, VideoDir, Test=False, **Settings) -> bool:
+    """True if ``Step`` (1-5) already finished for this video with these
+    settings and its current input, so a loop over videos can skip it.
+    Step 03 is not checked here: ``TrackCows(RedoFinished=False)`` decides."""
+    import hashlib
+    import json
+
+    from .Embed import EmbedUpToDate
+
+    VideoDir, F = Path(VideoDir), StepFolders(Test)
+    Md5 = lambda P: hashlib.md5(Path(P).read_bytes()).hexdigest()
+    if Step == 1:
+        return (VideoDir / "ReferenceClip.mp4").exists()
+    if Step == 2:
+        Info = VideoDir / F[2] / "Detect.json"
+        if not (Info.exists() and (VideoDir / F[2] / "Detections.csv").exists()):
+            return False
+        Was = json.loads(Info.read_text())
+        return all(Was.get(K) == V for K, V in Settings.items() if K in Was)
+    if Step == 4:
+        Info, Tracks = VideoDir / F[4] / "Crop.json", VideoDir / F[3] / "Tracks.csv"
+        return Info.exists() and Tracks.exists() and json.loads(Info.read_text()).get("TracksMd5") == Md5(Tracks)
+    if Step == 5:
+        return EmbedUpToDate(VideoDir, F[4], F[5])
+    return False
