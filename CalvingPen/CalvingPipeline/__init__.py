@@ -13,6 +13,7 @@ is one function, so it can be run for any video (any cow) from a notebook:
 | 06   | Pool.py       | BuildPool      | pool all videos, label tracks, self-check      | (reuses step 05 fingerprints)    |
 | all  | Rename.py     | PlanRenames    | rename videos + output folders to CalvingPen3Nov11Cow2 |  |
 | 01-06| Pipeline.py   | RunVideo(s)    | all steps for one / many videos, then pool     | (calls the functions above)      |
+| P    | Parlor.py     | FirstLook      | parlor videos: sample frames with YOLO boxes    | YOLO26m                          |
 | -    | Baselines/ByteTrack.py | DetectAndTrack | old tracker, only for comparison      | YOLO26n + ByteTrack              |
 
 Weights download automatically the first time (Ultralytics for YOLO / SAM,

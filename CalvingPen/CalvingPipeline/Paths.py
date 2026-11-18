@@ -15,6 +15,8 @@ from pathlib import Path
 GroupDir = Path("/content/drive/Shareddrives/BeastsAndBytes/ANSC4040GroupProject")
 RawVideoDir = GroupDir / "CalvingPenVideos "
 OutputRoot = GroupDir / "CalvingPenPipelineOutputs"   # one subfolder per video, then one per step
+ParlorVideoDir = GroupDir / "EntryParlorVideos"
+ParlorOutputRoot = GroupDir / "ParlorPipelineOutputs"   # same layout, for the milking-parlor videos
 
 VideoTypes = (".avi", ".mp4", ".mov", ".mkv")
 
