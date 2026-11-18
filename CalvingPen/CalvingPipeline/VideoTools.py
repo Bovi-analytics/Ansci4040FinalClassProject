@@ -35,6 +35,11 @@ def ProbeVideo(VideoPath) -> dict:
         capture_output=True, text=True, check=True,
     )
     Info = json.loads(Result.stdout)
+    if not Info.get("streams"):                      # e.g. an output where no frame could be decoded
+        Format = Info.get("format", {})
+        return {"Video": Path(VideoPath).name, "Container": Format.get("format_name"), "Codec": None,
+                "PixelFormat": None, "Width": 0, "Height": 0, "Fps": 0.0, "FrameCount": 0,
+                "DurationSeconds": 0.0, "Duration": FormatTime(0), "SizeMb": round(int(Format.get("size", 0)) / 2**20, 1)}
     Stream = Info["streams"][0]
     Format = Info["format"]
 
@@ -181,10 +186,54 @@ def RebuildClip(VideoPath, StartSeconds, Seconds, OutPath, InputFps, OutFps=30) 
     OutPath = Path(OutPath)
     OutPath.parent.mkdir(parents=True, exist_ok=True)
     Window = (["-ss", f"{StartSeconds:.3f}"] if StartSeconds else []) + (["-t", f"{Seconds:.3f}"] if Seconds else [])
-    subprocess.run(
+    Result = subprocess.run(
         ["ffmpeg", "-v", "error", "-y", "-fflags", "+genpts", "-r", f"{InputFps}", "-i", str(VideoPath), *Window,
          "-vf", f"fps={OutFps}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-         "-an", str(OutPath)], check=True)
+         "-an", str(OutPath)], capture_output=True, text=True)
+    if Result.returncode == 0 and ProbeVideo(OutPath)["DurationSeconds"] > 1:
+        return OutPath
+    print(f"  ffmpeg could not rebuild it ({(Result.stderr or 'no frames decoded').strip().splitlines()[-1][:120]}); "
+          "reading it frame by frame with OpenCV instead ...")
+    return RebuildClipOpenCV(VideoPath, StartSeconds, Seconds, OutPath, InputFps, OutFps)
+
+
+def RebuildClipOpenCV(VideoPath, StartSeconds, Seconds, OutPath, InputFps, OutFps=30) -> Path:
+    """Read the video frame by frame with OpenCV (no seeking, no timestamps:
+    frame n is at n / ``InputFps`` seconds) and write every k-th frame to a new
+    H.264 clip at ``OutFps``. Works on recordings ffmpeg cannot decode in
+    order, as long as OpenCV can read them."""
+    Cap = cv2.VideoCapture(str(VideoPath))
+    Fps = Cap.get(cv2.CAP_PROP_FPS) or InputFps or OutFps
+    Step = max(1, int(round(Fps / OutFps)))
+    First = int(round((StartSeconds or 0) * Fps))
+    Last = int(round(((StartSeconds or 0) + Seconds) * Fps)) if Seconds else None
+    Writer, Index, Written = None, -1, 0
+    try:
+        while Last is None or Index + 1 < Last:
+            if not Cap.grab():
+                break
+            Index += 1
+            if Index < First or (Index - First) % Step:
+                continue
+            Ok, Frame = Cap.retrieve()
+            if not Ok or Frame is None:
+                continue
+            if Writer is None:
+                H, W = Frame.shape[:2]
+                Writer = subprocess.Popen(
+                    ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}",
+                     "-r", f"{Fps / Step}", "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                     "-pix_fmt", "yuv420p", "-an", str(OutPath)], stdin=subprocess.PIPE)
+            Writer.stdin.write(Frame.tobytes())
+            Written += 1
+    finally:
+        Cap.release()
+        if Writer is not None:
+            Writer.stdin.close()
+            Writer.wait()
+    if not Written:
+        raise RuntimeError(f"OpenCV could not read any frame of {VideoPath} after {FormatTime(StartSeconds or 0)}")
+    print(f"  {Written} frames written ({Written / (Fps / Step):.0f} s at {Fps / Step:.0f} fps)")
     return OutPath
 
 
