@@ -108,8 +108,10 @@ def _Seeds(Boxes: np.ndarray, SeedConfidence) -> np.ndarray:
     return RemoveDuplicateBoxes(Frame)[["X1", "Y1", "X2", "Y2", "Confidence"]].to_numpy()
 
 
-def DrawMasks(Frame, Objects, Scale, Label):
-    """Darken everything, fill each mask with its track colour, outline it."""
+def DrawMasks(Frame, Objects, Scale, Label, Yolo=None):
+    """Darken everything, fill each mask with its track colour, outline it, and
+    draw YOLO's boxes of the same frame (thin white, with confidence), so the
+    preview shows both models at once."""
     Small = cv2.resize(Frame, None, fx=Scale, fy=Scale)
     Shown = (Small * 0.45).astype(np.uint8)            # background darkened: masked area stands out
     for TrackId, Box, Mask, Status in Objects:
@@ -120,8 +122,12 @@ def DrawMasks(Frame, Objects, Scale, Label):
         Contours, _ = cv2.findContours(M, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(Shown, Contours, -1, C, 2)
         P1, P2 = (int(Box[0] * Scale), int(Box[1] * Scale)), (int(Box[2] * Scale), int(Box[3] * Scale))
-        cv2.rectangle(Shown, P1, P2, (255, 255, 255), 1)
+        cv2.rectangle(Shown, P1, P2, C, 1)
         cv2.putText(Shown, f"{TrackId} {Status}", (P1[0], max(P1[1] - 6, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, C, 2)
+    for Box in (Yolo if Yolo is not None else []):                  # YOLO's boxes: thin white
+        P1, P2 = (int(Box[0] * Scale), int(Box[1] * Scale)), (int(Box[2] * Scale), int(Box[3] * Scale))
+        cv2.rectangle(Shown, P1, P2, (255, 255, 255), 1)
+        cv2.putText(Shown, f"Y{Box[4]:.2f}", (P1[0] + 2, P2[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
     cv2.putText(Shown, Label, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     return Shown
 
@@ -174,7 +180,7 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
 
     S, Fps = Settings, Settings["Fps"]
     First, Last = int(round(ChunkStart * Fps)), int(round((ChunkStart + Seconds) * Fps))
-    Rows, LastBox, LastKey, PreviewWriter = [], {}, {}, None
+    Rows, LastBox, LastKey, PreviewWriter, StoppedAt = [], {}, {}, None, None
     ChunkPath, PreviewTemp = WorkDir / f"Chunk{Number:03d}.mp4", WorkDir / f"Preview{Number:03d}.avi"
 
     # Seeds: (TrackId or None, box). Carry over animals SAM still had at the end of the last chunk.
@@ -205,10 +211,11 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
                                                       model=S["SegModel"], half=S["Half"], save=False, verbose=False))
         Ids = {I: T for I, (T, _) in enumerate(Seeds) if T is not None}   # SAM object index -> TrackId
         Boxes = [[float(V) for V in B] for _, B in Seeds]
+        Pending = []                                    # YOLO cows SAM is not covering: (box, frames in a row)
         for I, R in enumerate(Predictor(source=str(ChunkPath), bboxes=Boxes, stream=True)):
             TimeSeconds = round((SeedKey + I) / Fps, 3)
             FrameYolo = YoloBoxes.get(SeedKey + I, np.zeros((0, 5)))
-            Objects = []
+            Objects, FrameRows = [], []
             if R.boxes is not None and len(R.boxes):
                 Masks = R.masks.data.cpu().numpy().astype(bool)
                 for Box, Obj, Mask in zip(R.boxes.xyxy.cpu().numpy(), R.boxes.cls.int().tolist(), Masks):
@@ -223,14 +230,26 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
                     YoloIou = round(Ious[Best], 3) if Ious else 0.0
                     YoloConf = round(float(FrameYolo[Best, 4]), 3) if Ious else 0.0
                     Status = "ok" if YoloIou >= 0.3 else ("??" if len(FrameYolo) else "sam")
-                    Rows.append([int(round(TimeSeconds * S["ClipFps"])), TimeSeconds, Ids[Obj],
-                                 *[float(V) for V in np.round(Box, 1)], 1.0, CocoCow, int(Mask.sum()),
-                                 YoloIou, YoloConf, Number])
-                    LastBox[Ids[Obj]] = [float(V) for V in Box]
-                    LastKey[Ids[Obj]] = SeedKey + I
+                    FrameRows.append([int(round(TimeSeconds * S["ClipFps"])), TimeSeconds, Ids[Obj],
+                                      *[float(V) for V in np.round(Box, 1)], 1.0, CocoCow, int(Mask.sum()),
+                                      YoloIou, YoloConf, Number])
                     Objects.append((Ids[Obj], Box, Mask, Status))
+            if S.get("NewCowFrames") and I >= S.get("MinChunkSeconds", 2) * Fps:
+                # A confident YOLO cow that no SAM mask covers, several frames in a row: stop here and
+                # restart SAM on this frame with every cow it had plus the new one.
+                SamBoxes = [B for _, B, _, _ in Objects]
+                Uncovered = [Y for Y in FrameYolo if Y[4] >= S["SeedConfidence"]
+                             and all(BoxIou(Y, B) < 0.3 and _Inside(Y, B) < 0.5 for B in SamBoxes)]
+                Pending = [(Y, 1 + max([N for P, N in Pending if BoxIou(P, Y) >= 0.3], default=0)) for Y in Uncovered]
+                if any(N >= S["NewCowFrames"] for _, N in Pending):
+                    StoppedAt = SeedKey + I
+                    break
+            for Row, (TrackId, Box, _, _) in zip(FrameRows, Objects):
+                Rows.append(Row)
+                LastBox[TrackId] = [float(V) for V in Box]
+                LastKey[TrackId] = SeedKey + I
             if Preview:
-                Drawn = DrawMasks(R.orig_img, Objects, Scale, f"{TimeSeconds:7.1f}s  chunk {Number}")
+                Drawn = DrawMasks(R.orig_img, Objects, Scale, f"{TimeSeconds:7.1f}s  chunk {Number}", Yolo=FrameYolo)
                 if PreviewWriter is None:
                     PreviewWriter = cv2.VideoWriter(str(PreviewTemp), cv2.VideoWriter_fourcc(*"MJPG"),
                                                     Fps * S["PreviewSpeed"], (Drawn.shape[1], Drawn.shape[0]))
@@ -250,7 +269,9 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
         Writer.writerows(Rows)
     State = {"Chunk": Number, "StartSeconds": ChunkStart, "Seconds": Seconds, "Seeds": len(Seeds),
              "SeedSources": Sources, "StartedAt": None if SeedKey is None else round(SeedKey / Fps, 3),
-             "Previous": [[T, B, LastKey[T]] for T, B in LastBox.items()], "NextTrackId": NextTrackId}
+             "Previous": [[T, B, LastKey[T]] for T, B in LastBox.items()], "NextTrackId": NextTrackId,
+             "NextStart": round(StoppedAt / Fps, 3) if StoppedAt is not None else round(ChunkStart + Seconds, 3),
+             "NewCow": StoppedAt is not None}
     # Written last: a chunk only counts as done once its .json exists.
     (ChunkDir / f"Chunk{Number:03d}.json").write_text(json.dumps(State))
     return State
@@ -259,8 +280,14 @@ def _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, Next
 def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=None, ChunkSeconds=120,
               SeedConfidence=0.4, SegModel="sam2.1_s.pt", ImageSize=1024, LinkIou=0.3, CompareTracksPath=None,
               CarryOver=True, Half=False, Preview=True, PreviewSpeed=4, PreviewWidth=960, Resume=True,
-              RedoFinished=True, WorkDir=None) -> dict:
-    """Track the span step 02 covered (or ``StartSeconds``..``EndSeconds`` inside it)."""
+              RedoFinished=True, NewCowFrames=None, MinChunkSeconds=2, WorkDir=None) -> dict:
+    """``NewCowFrames``: when a confident YOLO cow that no SAM mask covers is seen
+    this many frames in a row (e.g. 3), the chunk ends at that frame and SAM
+    restarts there with every cow it had plus the new one, so every cow YOLO
+    finds gets a mask without waiting for the next 2-minute chunk (parlor:
+    cows keep walking in). A chunk is at least ``MinChunkSeconds`` long.
+    None = fixed chunks (as before). Tracks the span step 02 covered (or
+    ``StartSeconds``..``EndSeconds`` inside it)."""
     OutputDir, ChunkDir = Path(OutputDir), Path(OutputDir) / "Chunks"
     OutputDir.mkdir(parents=True, exist_ok=True)
     Detections, Detect = LoadDetections(DetectionsDir)
@@ -277,12 +304,25 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
                 "Half": Half, "Preview": Preview,
                 "PreviewSpeed": PreviewSpeed, "PreviewWidth": PreviewWidth, "ClipFps": Info["Fps"]}
 
+    if NewCowFrames:
+        Settings.update(NewCowFrames=NewCowFrames, MinChunkSeconds=MinChunkSeconds)
+
+    def Load(N):
+        State = json.loads((ChunkDir / f"Chunk{N:03d}.json").read_text())
+        State.setdefault("NextStart", round(State["StartSeconds"] + State["Seconds"], 3))   # older runs
+        return State
+
+    def LastDone():
+        N = 0
+        while (ChunkDir / f"Chunk{N + 1:03d}.json").exists():
+            N += 1
+        return N
+
     # Overwrite rule: start over unless the last run with exactly these settings
     # (and the same step 02 boxes) stopped part-way; only then continue it.
     SettingsPath = ChunkDir / "Settings.json"
     Same = SettingsPath.exists() and json.loads(SettingsPath.read_text()) == Settings
-    Total = len(np.arange(StartSeconds, EndSeconds - 1e-6, ChunkSeconds))
-    Finished = Same and all((ChunkDir / f"Chunk{N:03d}.json").exists() for N in range(1, Total + 1))
+    Finished = Same and LastDone() > 0 and Load(LastDone())["NextStart"] >= EndSeconds - 1e-6
     if not (Resume and Same) or (Finished and RedoFinished):
         if ChunkDir.exists():
             print("Starting over: " + ("Resume=False" if not Resume else
@@ -290,39 +330,47 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
         shutil.rmtree(ChunkDir, ignore_errors=True)
     ChunkDir.mkdir(exist_ok=True)
     SettingsPath.write_text(json.dumps(Settings, indent=1))
+    for Extra in ChunkDir.glob("Chunk*.csv"):                   # a chunk without its .json never finished
+        if not (ChunkDir / f"{Extra.stem}.json").exists():
+            Extra.unlink()
+            (ChunkDir / f"Preview{Extra.stem[5:]}.mp4").unlink(missing_ok=True)
 
-    Starts = [round(float(S), 3) for S in np.arange(StartSeconds, EndSeconds - 1e-6, ChunkSeconds)]
-    Done = {N for N in range(1, len(Starts) + 1) if (ChunkDir / f"Chunk{N:03d}.json").exists()}
-    FirstTodo = next((N for N in range(1, len(Starts) + 1) if N not in Done), None)
-    print(f"{Info['Video']}: {FormatTime(StartSeconds)}-{FormatTime(EndSeconds)} of the clip, {Fps} fps, "
-          f"{len(Starts)} chunks of {ChunkSeconds} s; {len(Done)} already done")
+    Number = LastDone()
+    if Number:
+        State = Load(Number)
+        ChunkStart, Previous, NextTrackId = State["NextStart"], [tuple(P) + (None,) * (3 - len(P)) for P in State["Previous"]], State["NextTrackId"]
+    else:
+        ChunkStart, Previous, NextTrackId = StartSeconds, [], 1
+    DoneBefore = Number
+    print(f"{Info['Video']}: {FormatTime(StartSeconds)}-{FormatTime(EndSeconds)} of the clip, {Fps} fps, chunks of up to "
+          f"{ChunkSeconds} s" + (", a new chunk whenever a new cow appears" if NewCowFrames else "")
+          + f"; {Number} chunk(s) already done, continuing at {FormatTime(ChunkStart)}")
 
     Started = time.time()
-    if FirstTodo is not None:
-        if FirstTodo > 1:
-            State = json.loads((ChunkDir / f"Chunk{FirstTodo - 1:03d}.json").read_text())
-            Previous, NextTrackId = [tuple(P) + (None,) * (3 - len(P)) for P in State["Previous"]], State["NextTrackId"]
-        else:
-            Previous, NextTrackId = [], 1
+    FirstShare = (ChunkStart - StartSeconds) / max(EndSeconds - StartSeconds, 1e-6)
+    if ChunkStart < EndSeconds - 1e-6:
         YoloBoxes = _BoxesByFrame(Detections, Fps)
         WorkDir = Path(WorkDir or tempfile.mkdtemp(prefix="Sam2Chunks"))   # local disk: much faster than Drive
         WorkDir.mkdir(parents=True, exist_ok=True)
         Scale = PreviewWidth / Info["Width"]
-        for Number in range(FirstTodo, len(Starts) + 1):
-            ChunkStart = Starts[Number - 1]
+        while ChunkStart < EndSeconds - 1e-6:
+            Number += 1
             Seconds = min(ChunkSeconds, EndSeconds - ChunkStart)
             ChunkStarted = time.time()
             State = _TrackChunk(ClipPath, ChunkStart, Seconds, Number, YoloBoxes, Previous, NextTrackId, Settings,
                                 WorkDir, ChunkDir, Scale, Preview)
             Previous, NextTrackId = [tuple(P) for P in State["Previous"]], State["NextTrackId"]
-            Left = (len(Starts) - Number) * (time.time() - Started) / (Number - FirstTodo + 1)
             Kinds = ", ".join(f"{State['SeedSources'].count(K)} {K}" for K in ("carried", "yolo", "new")
                               if State["SeedSources"].count(K))
             Late = (f", started {State['StartedAt'] - ChunkStart:.0f} s in"
                     if State["StartedAt"] is not None and State["StartedAt"] > ChunkStart + 1 else "")
-            print(f"  chunk {Number}/{len(Starts)} ({FormatTime(ChunkStart)}): "
+            Ends = f", new cow at {FormatTime(State['NextStart'])}: restarting there" if State["NewCow"] else ""
+            DoneShare = (State["NextStart"] - StartSeconds) / max(EndSeconds - StartSeconds, 1e-6)
+            Remaining = (time.time() - Started) / max(DoneShare - FirstShare, 1e-6) * (1 - DoneShare)
+            print(f"  chunk {Number} ({FormatTime(ChunkStart)}): "
                   + (f"{State['Seeds']} seed(s) ({Kinds}){Late}" if State["Seeds"] else "no cow to follow, skipped")
-                  + f", {time.time() - ChunkStarted:.0f} s, ~{Left / 60:.0f} min left")
+                  + f"{Ends}, {time.time() - ChunkStarted:.0f} s, {DoneShare:.0%} done, ~{Remaining / 60:.0f} min left")
+            ChunkStart = State["NextStart"]
         shutil.rmtree(WorkDir, ignore_errors=True)
 
     # Rebuild the combined outputs from all chunks.
@@ -348,7 +396,7 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
         Rows.insert(0, {"Method": "ByteTrack (baseline)", **_TrackStats(Byte, 5, Span, 5)})   # baseline ran at 5 fps
     pd.DataFrame(Rows).to_csv(OutputDir / "Comparison.csv", index=False)
 
-    Stats = {"Chunks": len(Starts), "ChunksRunNow": 0 if FirstTodo is None else len(Starts) - FirstTodo + 1,
+    Stats = {"Chunks": Number, "ChunksRunNow": Number - DoneBefore,
              "Seconds": round(time.time() - Started, 1), "Tracks": int(Tracks.TrackId.nunique()), "Boxes": len(Tracks)}
     if len(Tracks):
         Status = YoloStatus(Tracks)
