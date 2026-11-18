@@ -124,6 +124,13 @@ Only video files in `CalvingPenVideos ` and `CalvingPenPipeline` are renamed; th
 The cow is not in the file name: cows are labelled per pen, in date order: `Pen1Cow1`, `Pen1Cow2`, `Pen2Cow1`, ... (see step 06 / `Identities.csv`).
 Use the new name without `.avi` as `VideoStem` for videos run from now on.
 
+## Milking-parlor test
+
+`ParlorTest.ipynb` runs the calving steps (01 cut, 02 YOLO, 03 SAM, 04 crops) on one entry-parlor video
+(`EntryParlorVideos/...`), after a **first look** (`Parlor.FirstLook`: video details and sample frames with
+YOLO's boxes). It uses YOLO26m (crowded scene) and 5 fps (cows walk in fast), and writes to
+`ParlorPipelineOutputs/<video>/`. Cow IDs come later from the parlor stall list (BoviSync), matched by stall position.
+
 ## Hugging Face token for DINOv3 (step 05)
 
 Step 05 uses **DINOv3**, which Meta shares on Hugging Face only after you accept its license. Each person who runs step 05 (in `Step05*`, `PipelineSteps` or `RunPipeline`) needs their own free token, set up once:
