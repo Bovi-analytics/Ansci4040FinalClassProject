@@ -172,8 +172,28 @@ def CutClip(VideoPath, StartTime, DurationSeconds, OutPath, ReEncode=True) -> Pa
     return OutPath
 
 
-def PrepareClips(VideoPath, OutputDir, ClipStart, ClipEnd=None, DevStart=None, DevSeconds=300) -> dict:
-    """Probe the video and cut its clips into ``OutputDir`` under fixed names,
+def RebuildClip(VideoPath, StartSeconds, Seconds, OutPath, InputFps, OutFps=30) -> Path:
+    """Re-encode with **new timestamps**: every packet is read as a frame at
+    ``InputFps`` (the rate the header claims, e.g. 150), then written at
+    ``OutFps``. For recordings whose timestamps are broken, so a stream copy
+    comes out empty (0:00) or far too long. Slower than a copy (it decodes
+    from the start of the file), but the clip plays and has the right length."""
+    OutPath = Path(OutPath)
+    OutPath.parent.mkdir(parents=True, exist_ok=True)
+    Window = (["-ss", f"{StartSeconds:.3f}"] if StartSeconds else []) + (["-t", f"{Seconds:.3f}"] if Seconds else [])
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-fflags", "+genpts", "-r", f"{InputFps}", "-i", str(VideoPath), *Window,
+         "-vf", f"fps={OutFps}", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+         "-an", str(OutPath)], check=True)
+    return OutPath
+
+
+def PrepareClips(VideoPath, OutputDir, ClipStart, ClipEnd=None, DevStart=None, DevSeconds=300, Rebuild="Auto") -> dict:
+    """``Rebuild``: "Auto" = if the stream copy comes out empty (< 1 s) or much
+    longer than asked for (broken timestamps), cut again with ``RebuildClip``;
+    True = always rebuild; False = never.
+
+    Probe the video and cut its clips into ``OutputDir`` under fixed names,
     overwriting any earlier run for this video:
 
     - ``DevClip.mp4``: ``DevSeconds`` from ``DevStart``, re-encoded; cut first
@@ -202,8 +222,17 @@ def PrepareClips(VideoPath, OutputDir, ClipStart, ClipEnd=None, DevStart=None, D
         Summary["DevClip"] = ProbeVideo(CutClip(VideoPath, DevStart, DevSeconds, OutputDir / "DevClip.mp4"))
         SummaryPath.write_text(json.dumps(Summary, indent=2))
 
-    print(f"ReferenceClip {FormatTime(Start)} to {FormatTime(End)} (stream copy) ...")
-    Summary["ReferenceClip"] = ProbeVideo(
-        CutClip(VideoPath, Start, End - Start, OutputDir / "ReferenceClip.mp4", ReEncode=False))
+    ClipPath = OutputDir / "ReferenceClip.mp4"
+    if Rebuild is not True:
+        print(f"ReferenceClip {FormatTime(Start)} to {FormatTime(End)} (stream copy) ...")
+        Clip = ProbeVideo(CutClip(VideoPath, Start, End - Start, ClipPath, ReEncode=False))
+        Broken = Clip["DurationSeconds"] < 1 or Clip["DurationSeconds"] > (End - Start) + 60
+    if Rebuild is True or (Rebuild == "Auto" and Broken):
+        if Rebuild == "Auto":
+            print(f"  the copy is {Clip['Duration']} long (broken timestamps): cutting again with rebuilt timestamps ...")
+        Clip = ProbeVideo(RebuildClip(VideoPath, Start, None if ClipEnd is None else End - Start, ClipPath,
+                                      InputFps=Video["Fps"] or 30))
+        Summary["Rebuilt"] = True
+    Summary["ReferenceClip"] = Clip
     SummaryPath.write_text(json.dumps(Summary, indent=2))
     return Summary

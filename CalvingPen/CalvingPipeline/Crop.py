@@ -149,6 +149,8 @@ def CropCows(ClipPath, TracksPath, OutputDir, MinFrames=10, MinConfidence=0.4, C
             X1, Y1 = int(max(0, Box.X1 - PadX)), int(max(0, Box.Y1 - PadY))
             X2, Y2 = int(min(W, Box.X2 + PadX)), int(min(H, Box.Y2 + PadY))
             Crop = Frame[Y1:Y2, X1:X2].copy()
+            if Crop.size == 0:                 # box outside the frame: nothing to cut
+                continue
             MaskFraction = 1.0
             if Masks is not None:
                 Mask = Masks[I][Y1:Y2, X1:X2]
