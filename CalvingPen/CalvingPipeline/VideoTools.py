@@ -178,13 +178,26 @@ def CutClip(VideoPath, StartTime, DurationSeconds, OutPath, ReEncode=True) -> Pa
 
 
 def RebuildClip(VideoPath, StartSeconds, Seconds, OutPath, InputFps, OutFps=30) -> Path:
-    """Re-encode with **new timestamps**: every packet is read as a frame at
-    ``InputFps`` (the rate the header claims, e.g. 150), then written at
-    ``OutFps``. For recordings whose timestamps are broken, so a stream copy
+    """Re-encode with **new timestamps**. For an AVI: read its chunks directly
+    (``AviFrames.RebuildAvi``: one chunk per 1/``InputFps`` s, empty chunks =
+    picture unchanged). Otherwise, or if that fails: ffmpeg reads every packet as a
+    frame at ``InputFps`` (the rate the header claims, e.g. 150), written at
+    ``OutFps``; then OpenCV frame by frame. For recordings whose timestamps are broken, so a stream copy
     comes out empty (0:00) or far too long. Slower than a copy (it decodes
     from the start of the file), but the clip plays and has the right length."""
     OutPath = Path(OutPath)
     OutPath.parent.mkdir(parents=True, exist_ok=True)
+    if Path(VideoPath).suffix.lower() == ".avi":
+        # The recorders write one chunk per 1/InputFps s, empty when the picture did not change, and
+        # their index can be broken: read the chunks directly and keep each real frame at its time.
+        try:
+            from .AviFrames import RebuildAvi
+            Done = RebuildAvi(VideoPath, OutPath, StartSeconds or 0, Seconds, TicksPerSecond=InputFps, OutFps=OutFps)
+            print(f"  rebuilt from the AVI chunks: {Done['RealFrames']} real frames -> {Done['Seconds']} s at {OutFps} fps")
+            if Done["WrittenFrames"] > OutFps:
+                return OutPath
+        except Exception as Error:
+            print(f"  reading the AVI chunks failed ({type(Error).__name__}: {str(Error)[:100]}); trying ffmpeg ...")
     Window = (["-ss", f"{StartSeconds:.3f}"] if StartSeconds else []) + (["-t", f"{Seconds:.3f}"] if Seconds else [])
     Result = subprocess.run(
         ["ffmpeg", "-v", "error", "-y", "-fflags", "+genpts", "-r", f"{InputFps}", "-i", str(VideoPath), *Window,
