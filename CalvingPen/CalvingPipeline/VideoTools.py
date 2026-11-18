@@ -110,8 +110,8 @@ def GrabFrameAt(VideoPath, Time, Width=None) -> np.ndarray:
          "-frames:v", "1", *Scale, "-f", "image2pipe", "-c:v", "png", "-"],
         capture_output=True, check=True,
     )
-    Frame = cv2.imdecode(np.frombuffer(Result.stdout, np.uint8), cv2.IMREAD_COLOR)
-    if Frame is None:
+    Frame = cv2.imdecode(np.frombuffer(Result.stdout, np.uint8), cv2.IMREAD_COLOR) if Result.stdout else None
+    if Frame is None:                      # e.g. past the real end of a video whose header claims a longer length
         raise ValueError(f"no frame at {FormatTime(ParseTime(Time))} in {VideoPath}")
     return Frame
 
@@ -122,12 +122,16 @@ def SaveTimelineSheet(VideoPath, OutPath, EveryMinutes=15, ThumbWidth=320, Colum
     DurationSeconds = ProbeVideo(VideoPath)["DurationSeconds"]
     Times = np.arange(0, DurationSeconds, EveryMinutes * 60)
 
-    Thumbs = []
+    Thumbs, Missing = [], 0
     for Time in Times:
         try:
             Thumb = GrabFrameAt(VideoPath, Time, Width=ThumbWidth)
-        except (subprocess.CalledProcessError, ValueError):
-            Thumb = None
+            Missing = 0
+        except (subprocess.CalledProcessError, ValueError, cv2.error):
+            Thumb, Missing = None, Missing + 1
+        if Missing >= 3 and Thumbs:        # past the real end (the AVI header can claim a wrong length)
+            Thumbs = Thumbs[:-2]
+            break
         if Thumb is None:
             Height = Thumbs[0].shape[0] if Thumbs else ThumbWidth * 9 // 16
             Thumb = np.zeros((Height, ThumbWidth, 3), np.uint8)
