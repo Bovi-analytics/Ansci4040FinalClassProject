@@ -322,7 +322,7 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
     # (and the same step 02 boxes) stopped part-way; only then continue it.
     SettingsPath = ChunkDir / "Settings.json"
     Same = SettingsPath.exists() and json.loads(SettingsPath.read_text()) == Settings
-    Finished = Same and LastDone() > 0 and Load(LastDone())["NextStart"] >= EndSeconds - 1e-6
+    Finished = Same and LastDone() > 0 and Load(LastDone())["NextStart"] >= EndSeconds - 1 / Fps
     if not (Resume and Same) or (Finished and RedoFinished):
         if ChunkDir.exists():
             print("Starting over: " + ("Resume=False" if not Resume else
@@ -348,12 +348,12 @@ def TrackCows(ClipPath, DetectionsDir, OutputDir, StartSeconds=None, EndSeconds=
 
     Started = time.time()
     FirstShare = (ChunkStart - StartSeconds) / max(EndSeconds - StartSeconds, 1e-6)
-    if ChunkStart < EndSeconds - 1e-6:
+    if ChunkStart < EndSeconds - 1 / Fps:
         YoloBoxes = _BoxesByFrame(Detections, Fps)
         WorkDir = Path(WorkDir or tempfile.mkdtemp(prefix="Sam2Chunks"))   # local disk: much faster than Drive
         WorkDir.mkdir(parents=True, exist_ok=True)
         Scale = PreviewWidth / Info["Width"]
-        while ChunkStart < EndSeconds - 1e-6:
+        while ChunkStart < EndSeconds - 1 / Fps:
             Number += 1
             Seconds = min(ChunkSeconds, EndSeconds - ChunkStart)
             ChunkStarted = time.time()
