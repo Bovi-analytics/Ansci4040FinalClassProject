@@ -160,6 +160,20 @@ Ported from [Sonam525/Re-id-for-tracking](https://github.com/Sonam525/Re-id-for-
 
 The design notes that `CowN` in the file names is probably the **part number** of a day's export, not a cow. If so, the old pool's labels (Cow1 = the file's cow) are not identities. The re-ID pipeline uses only human labels.
 
+## Masking people (privacy)
+
+`MaskPeople.ipynb` (all videos) and `MaskPeoplePart1-4.ipynb` (a quarter each, to run in parallel) make a copy of **every video on the group drive with every person blacked out**, in `MaskedVideos/` (same folders as the originals). Students and AI tools should get only these copies. Code: `CalvingPipeline/Privacy.py`.
+
+| What | How | Why |
+|---|---|---|
+| Find people | **YOLO26s**, COCO class 0 "person", size 1024, confidence 0.15, on **every** frame written | A miss shows a person; a false alarm only hides a bit of pen |
+| Cover them | Black box 15 % larger than the person (more above, for the head), held 0.5 s before and after | Covers frames where YOLO briefly loses someone |
+| Write | H.264 MP4 at 10 fps (the cameras change the picture ~2 times a second), read with the AVI chunk reader | Normal, playable files without the fake 24–80 h headers |
+| Resume | Saved every 30 min of video; done videos are skipped | Colab disconnects |
+| Check | `MaskedVideos/Logs/<folder>/<video>/MaskCheck.jpg` (masked frames at each new person and every 15 min), `PeopleBoxes.csv`, `Run.json` | A person confirms nobody was missed before sharing |
+
+Limits: YOLO can miss a person who is mostly hidden, tiny, or in dark night footage, so check the sheets. Masking only helps if students cannot open the original folders (Drive sharing is set by hand). The pipeline outputs made from the originals (crops, sheets, previews, first/last frames) can also show people.
+
 ## Hugging Face token for DINOv3 (step 05)
 
 Step 05 uses **DINOv3**, which Meta shares on Hugging Face only after you accept its license. Each person who runs step 05 (in `Step05*`, `PipelineSteps` or `RunPipeline`) needs their own free token, set up once:
@@ -221,6 +235,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | 01–06 | `PipelineSteps.ipynb`: **all steps in one notebook**, one cell per step, for a **list of videos** (each cell runs its step for every video; finished steps are skipped, so a rerun after a disconnect continues) | T4 | ready |
 | 01–06 | `RunPipeline.ipynb`: all steps for a list of videos, then the pool | T4, ~1.5–2 h per hour of video | ready |
 | Re-ID | `ReidValidation.ipynb`: track + canonical crops, 8-band fingerprints, labelling sheets, identity layer, validation v1 (see *Re-ID* above) | T4, ~1–2 h per part + labelling | ready, not run yet |
+| Privacy | `MaskPeople.ipynb`, `MaskPeoplePart1-4.ipynb`: every video on the drive with people blacked out, into `MaskedVideos/` (see *Masking people* above) | T4, ~1–2 h per 4-hour video (estimate) | ready, not run yet |
 
 ## Conventions
 

@@ -18,6 +18,7 @@ OutputRoot = GroupDir / "CalvingPenPipelineOutputs"   # one subfolder per video,
 ParlorVideoDir = GroupDir / "EntryParlorVideos"
 ParlorOutputRoot = GroupDir / "ParlorPipelineOutputs"   # same layout, for the milking-parlor videos
 ReidOutputRoot = GroupDir / "ReidPipelineOutputs"       # re-ID design v2: one folder per validation, then per video
+MaskedVideoRoot = GroupDir / "MaskedVideos"             # people blacked out (Privacy.py): the copies students use
 
 VideoTypes = (".avi", ".mp4", ".mov", ".mkv")
 
