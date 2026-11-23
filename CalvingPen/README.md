@@ -172,6 +172,15 @@ The design notes that `CowN` in the file names is probably the **part number** o
 | Resume | Saved every 30 min of video; done videos are skipped | Colab disconnects |
 | Check | `MaskedVideos/Logs/<folder>/<video>/MaskCheck.jpg` (masked frames at each new person and every 15 min), `PeopleBoxes.csv`, `Run.json` | A person confirms nobody was missed before sharing |
 
+**On a laptop** (videos already downloaded; a Mac uses its GPU): from the repo folder,
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -q -r CalvingPen/requirements.txt
+cd CalvingPen && ../.venv/bin/python -m CalvingPipeline.Privacy ~/Downloads/CalvingPen3Sep26Cow2.avi --minutes 30
+```
+
+Writes `~/MaskedVideos/<video>.mp4` and `~/MaskedVideos/Logs/<video>/MaskCheck.jpg` (`--out` for another folder, no `--minutes` for the whole video, several videos at once are fine). On an M-series Mac: about 0.4 min per minute of video with YOLO26s. Videos and weights are in `.gitignore`: never commit them.
+
 Limits: YOLO can miss a person who is mostly hidden, tiny, or in dark night footage, so check the sheets. Masking only helps if students cannot open the original folders (Drive sharing is set by hand). The pipeline outputs made from the originals (crops, sheets, previews, first/last frames) can also show people.
 
 ## Hugging Face token for DINOv3 (step 05)
