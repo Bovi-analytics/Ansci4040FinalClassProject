@@ -358,6 +358,8 @@ def Main(Arguments=None):
     A = Parser.parse_args(Arguments)
     Out = Path(A.out).expanduser().resolve()
     for V in A.Videos:
+        if not Path(V).expanduser().is_file():
+            raise SystemExit(f"No video at {V}: check the name (drag the file from Finder into Terminal to paste its path)")
         if Out in Path(V).resolve().parents or Path(V).resolve().parent == Out:
             raise SystemExit(f"--out must not contain the input videos ({V})")
     Results = MaskAll(Videos=[Path(V).expanduser() for V in A.Videos], Redo=A.redo, MaskedRoot=Out, OutFps=A.fps,
