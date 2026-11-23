@@ -24,7 +24,9 @@ How (``MaskVideo``):
 Per video, ``MaskedVideos/Logs/<folder>/<video>/`` gets ``Run.json`` (settings,
 frames, frames with people), ``PeopleBoxes.csv`` (the detected boxes, no
 pictures) and ``MaskCheck.jpg``: masked frames at each new person sighting
-and every 15 min, for a person to check that nobody was missed.
+and every 15 min, for a person to check that nobody was missed (while it
+runs they are single pictures in ``Check/``, and the video is in pieces in
+the hidden folder ``.<video>.parts``; both are joined at the end).
 
 Limits: YOLO can miss a person who is mostly hidden, very small, or in dark
 night footage. Masking only protects people if students get the
@@ -298,6 +300,10 @@ def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize
         F.unlink()
     Parts.rmdir()
     _CheckSheet(CheckDir, LogDir / "MaskCheck.jpg")
+    for F in CheckDir.glob("*.jpg"):     # the sheet holds them all
+        F.unlink()
+    if not any(CheckDir.iterdir()):
+        CheckDir.rmdir()
     Run.update({"Finished": True, "LastRealSeconds": Info.get("LastRealSeconds"), "RealPictures": Info.get("RealPictures"),
                 "Minutes": round((time.time() - Started) / 60, 1),
                 "PeopleShare": round(Run["FramesWithPeople"] / max(Run["Frames"], 1), 4)})
@@ -353,6 +359,7 @@ def Main(Arguments=None):
     Parser.add_argument("--fps", type=float, default=5, help="frames per second of the masked copy (default 5)")
     Parser.add_argument("--model", default="yolo26s.pt", help="person detector (default yolo26s.pt)")
     Parser.add_argument("--size", type=int, default=1024, help="YOLO picture size (default 1024)")
+    Parser.add_argument("--width", type=int, default=None, help="width of the masked copy, e.g. 1280 (about half the file size); default: original")
     Parser.add_argument("--device", default=None, help="cpu, mps or 0 (default: the best there is)")
     Parser.add_argument("--redo", action="store_true", help="redo videos that are done")
     A = Parser.parse_args(Arguments)
@@ -363,7 +370,7 @@ def Main(Arguments=None):
         if Out in Path(V).resolve().parents or Path(V).resolve().parent == Out:
             raise SystemExit(f"--out must not contain the input videos ({V})")
     Results = MaskAll(Videos=[Path(V).expanduser() for V in A.Videos], Redo=A.redo, MaskedRoot=Out, OutFps=A.fps,
-                      ModelName=A.model, ImageSize=A.size, Device=A.device,
+                      ModelName=A.model, ImageSize=A.size, Device=A.device, OutWidth=A.width,
                       EndSeconds=A.minutes * 60 if A.minutes else None)
     print(Results.to_string(index=False))
     print(f"Check sheets: {Out / 'Logs'}/<video>/MaskCheck.jpg")
