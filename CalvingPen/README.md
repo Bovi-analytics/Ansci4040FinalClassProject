@@ -168,7 +168,7 @@ The design notes that `CowN` in the file names is probably the **part number** o
 |---|---|---|
 | Find people | **YOLO26s**, COCO class 0 "person", size 1024, confidence 0.15, on **every** frame written | A miss shows a person; a false alarm only hides a bit of pen |
 | Cover them | Black box 15 % larger than the person (more above, for the head), held 0.5 s before and after | Covers frames where YOLO briefly loses someone |
-| Write | H.264 MP4 at 10 fps (the cameras change the picture ~2 times a second), read with the AVI chunk reader | Normal, playable files without the fake 24–80 h headers |
+| Write | H.264 MP4 at 5 fps (the cameras change the picture ~2 times a second), read with the AVI chunk reader | Normal, playable files without the fake 24–80 h headers |
 | Resume | Saved every 30 min of video; done videos are skipped | Colab disconnects |
 | Check | `MaskedVideos/Logs/<folder>/<video>/MaskCheck.jpg` (masked frames at each new person and every 15 min), `PeopleBoxes.csv`, `Run.json` | A person confirms nobody was missed before sharing |
 

@@ -4,8 +4,10 @@ students and AI tools work with show no faces or bodies of farm staff.
 How (``MaskVideo``):
 
 1. Frames are read with ``Reid.Frames.SampleFrames`` (the AVI chunk reader:
-   right times, no fake 24-80 h tails) at ``OutFps`` (default 10; the
-   cameras change the picture only ~2 times a second, so 10 loses nothing).
+   right times, no fake 24-80 h tails) at ``OutFps`` (default 5; the
+   cameras change the picture only ~2 times a second, so 5 loses nothing).
+   The masked copy is a video, not single pictures: each of its frames is
+   checked, because a frame that is not checked could show a person.
 2. **Every** frame that is written is checked by YOLO26s (COCO class 0,
    "person") at size 1024 with a low confidence (0.15): a false alarm only
    blacks out a bit of pen, a miss shows a person.
@@ -77,7 +79,7 @@ def ListAllVideos(Root=None) -> pd.DataFrame:
                 Size = None
             Run = json.loads((Log / "Run.json").read_text()) if (Log / "Run.json").exists() else {}
             Rows.append({"Video": File, "Folder": str(Path(Folder).relative_to(Root)), "SizeGb": Size and round(Size, 2),
-                         "Status": "done" if Run.get("Finished") else "empty" if Run.get("Empty")
+                         "Status": ("trial" if Run.get("Settings", {}).get("EndSeconds") else "done") if Run.get("Finished") else "empty" if Run.get("Empty")
                          else "started" if Run else "to do", "Source": str(Source), "Masked": str(Out)})
     return pd.DataFrame(Rows, columns=["Video", "Folder", "SizeGb", "Status", "Source", "Masked"])
 
@@ -156,10 +158,11 @@ def _CheckSheet(Folder: Path, OutPath: Path, Columns=6, Width=320):
     return OutPath
 
 
-def MaskVideo(VideoPath, Model=None, OutFps=10, ModelName="yolo26s.pt", ImageSize=1024, Confidence=0.15, Pad=0.15,
+def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize=1024, Confidence=0.15, Pad=0.15,
               HeadPad=0.25, HoldSeconds=0.5, Style="Fill", SegmentMinutes=30, OutWidth=None, NativeFps=None,
-              BatchFrames=16, CheckEveryMinutes=15, Redo=False) -> dict:
-    """Masked copy of one video (see the module doc). Returns its Run.json."""
+              BatchFrames=16, CheckEveryMinutes=15, EndSeconds=None, Redo=False) -> dict:
+    """Masked copy of one video (see the module doc). Returns its Run.json.
+    ``EndSeconds``: stop there (a trial; listed as "trial", not "done")."""
     from .Reid.Frames import LocalCopy, SampleFrames
 
     VideoPath = Path(VideoPath)
@@ -167,7 +170,7 @@ def MaskVideo(VideoPath, Model=None, OutFps=10, ModelName="yolo26s.pt", ImageSiz
     Parts, CheckDir = OutPath.parent / f".{OutPath.stem}.parts", LogDir / "Check"
     Settings = {"Video": VideoPath.name, "OutFps": OutFps, "ModelName": ModelName, "ImageSize": ImageSize,
                 "Confidence": Confidence, "Pad": Pad, "HeadPad": HeadPad, "HoldSeconds": HoldSeconds, "Style": Style,
-                "SegmentMinutes": SegmentMinutes, "OutWidth": OutWidth, "NativeFps": NativeFps}
+                "SegmentMinutes": SegmentMinutes, "OutWidth": OutWidth, "NativeFps": NativeFps, "EndSeconds": EndSeconds}
     RunPath = LogDir / "Run.json"
     Run = json.loads(RunPath.read_text()) if RunPath.exists() else {}
     Same = Run.get("Settings") == Settings and not Redo
@@ -247,7 +250,7 @@ def MaskVideo(VideoPath, Model=None, OutFps=10, ModelName="yolo26s.pt", ImageSiz
 
     try:
         Batch = []
-        for Tick, T, Frame in SampleFrames(LocalCopy(VideoPath), OutFps, From, None, NativeFps, Info):
+        for Tick, T, Frame in SampleFrames(LocalCopy(VideoPath), OutFps, From, EndSeconds, NativeFps, Info):
             Batch.append((Tick, T, Frame))
             if len(Batch) == BatchFrames:
                 Flush(Batch)
@@ -299,7 +302,8 @@ def MaskAll(Videos=None, Part=None, Parts=4, Redo=False, **Settings) -> pd.DataF
         print(f"\n[{I}/{len(Sources)}] {Source}")
         try:
             Run = MaskVideo(Source, Model=Model, Redo=Redo, **Settings)
-            Results.append({"Video": Path(Source).name, "Status": "empty" if Run.get("Empty") else "done",
+            Results.append({"Video": Path(Source).name, "Status": "empty" if Run.get("Empty") else
+                            "trial" if Settings.get("EndSeconds") else "done",
                             "PeopleShare": Run.get("PeopleShare"), "Masked": str(MaskedPaths(Source)[0])})
         except Exception as Error:          # e.g. a broken file: note it, go on with the next video
             print(f"  FAILED: {type(Error).__name__}: {Error}")
