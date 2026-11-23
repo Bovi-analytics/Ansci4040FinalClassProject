@@ -75,7 +75,8 @@ def _NeighbourIos(Masks):
 
 def TrackAndCrop(VideoPath, OutputDir, TargetFps=5, EverySeconds=15, StartSeconds=0.0, EndSeconds=None,
                  DetModel="yolo26n.pt", ImageSize=1024, Confidence=0.25, TrackBufferSeconds=10,
-                 SegModel="sam2.1_s.pt", NativeFps=None, NightSaturation=15, FlushSeconds=60, Redo=False) -> dict:
+                 SegModel="sam2.1_s.pt", NativeFps=None, NightSaturation=15, FlushSeconds=60, MaxHoldSeconds=5.0,
+                 Redo=False) -> dict:
     from ultralytics import SAM, YOLO
 
     OutputDir = Path(OutputDir)
@@ -123,7 +124,7 @@ def TrackAndCrop(VideoPath, OutputDir, TargetFps=5, EverySeconds=15, StartSecond
     NextPrint = From + 600
     print(f"{Settings['Video']}: {TargetFps} fps from {From:.0f} s, a crop of every cow every {EverySeconds} s")
     try:
-        for Tick, T, Frame in SampleFrames(Local, TargetFps, From, EndSeconds, NativeFps, Info):
+        for Tick, T, Frame in SampleFrames(Local, TargetFps, From, EndSeconds, NativeFps, Info, MaxHoldSeconds):
             if Count == 0 and not Resume:
                 cv2.imwrite(str(OutputDir / "FirstFrame.jpg"), Frame)
             Result = Model.track(Frame, persist=True, tracker=Tracker, classes=[CocoCow], conf=Confidence,
@@ -170,9 +171,31 @@ def TrackAndCrop(VideoPath, OutputDir, TargetFps=5, EverySeconds=15, StartSecond
         except ImportError:
             pass
     import pandas as pd
+    if Info.get("LastRealSeconds") is not None and (LastFrame is None or T > Info["LastRealSeconds"] + MaxHoldSeconds):
+        # continued after the real end (old frozen tail): take the last frame from the real end
+        End = Info["LastRealSeconds"]
+        for _, _, Frame in SampleFrames(Local, 1, max(0.0, End - 30.0), End, NativeFps, None, MaxHoldSeconds):
+            LastFrame = Frame
     if LastFrame is not None:
         cv2.imwrite(str(OutputDir / "LastFrame.jpg"), LastFrame)
     Tracks, CropTable = pd.read_csv(OutputDir / "Tracks.csv"), pd.read_csv(OutputDir / "Crops.csv")
+    End = Info.get("LastRealSeconds")
+    if End is not None and (Tracks.TimeSeconds > End + MaxHoldSeconds).any():
+        # rows made from a frozen last picture by the old reader (before the gap rule): drop them and their crops
+        Late = CropTable[CropTable.TimeSeconds > End + MaxHoldSeconds]
+        for CropPath in Late.CropPath:
+            (OutputDir / CropPath).unlink(missing_ok=True)
+        for Folder in (OutputDir / "Crops").glob("Track*"):
+            if Folder.is_dir() and not any(Folder.iterdir()):
+                Folder.rmdir()
+        Dropped = int((Tracks.TimeSeconds > End + MaxHoldSeconds).sum())
+        Tracks = Tracks[Tracks.TimeSeconds <= End + MaxHoldSeconds]
+        CropTable = CropTable[CropTable.TimeSeconds <= End + MaxHoldSeconds]
+        Tracks.to_csv(OutputDir / "Tracks.csv", index=False)
+        CropTable.to_csv(OutputDir / "Crops.csv", index=False)
+        Run["TrimmedAfterSeconds"] = End
+        print(f"The real video ends at {End / 60:.1f} min: dropped {Dropped} boxes and {len(Late)} crops after it")
+        T = min(T, End)
     Run.update({"Finished": True, "DoneSeconds": T, "LastRealSeconds": Info.get("LastRealSeconds"),
                 "RealPictures": Info.get("RealPictures"), "NativeFps": Info.get("NativeFps"),
                 "Tracks": int(Tracks.TrackId.nunique()), "Crops": int(len(CropTable)),

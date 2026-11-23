@@ -5,8 +5,12 @@ is empty when the picture did not change, and the header length is often fake
 (24-80 h for a 4 h recording). Container timestamps are therefore never used:
 for an AVI we walk the chunks ourselves (``AviFrames.AviChunks``), give every
 real (non-empty) chunk the time ``tick / NativeFps``, decode the H.264 data with
-PyAV, and hold each picture until the next real one. The file ends where its
-last real chunk is, so an empty or broken tail is never read as video.
+PyAV, and hold each picture until the next real one, but never longer than
+``MaxHoldSeconds``. After a gap of more than ``MaxHoldSeconds`` without data,
+pictures are only used again from the next keyframe: the recorders can leave a
+few stray chunks hours after the real end (CalvingPen3Sep26Cow2.avi: the video
+ends at 224 min, then 7 single chunks up to 27 h), and holding the last
+picture until them would make hours of a frozen frame.
 
 Other files (.mp4 cut by ffmpeg) have sane timestamps and are read normally.
 
@@ -15,6 +19,7 @@ seconds; ``Tick`` names the real picture shown (the same picture can be
 yielded several times when nothing changed).
 """
 
+import math
 import shutil
 from pathlib import Path
 
@@ -42,18 +47,26 @@ def HeaderFps(VideoPath) -> float:
     return float(ProbeVideo(VideoPath)["Fps"] or 30.0)
 
 
-def _AviPictures(VideoPath, NativeFps, StartSeconds, EndSeconds):
+def _AviPictures(VideoPath, NativeFps, StartSeconds, EndSeconds, MaxHoldSeconds=5.0, Info=None):
     """``(Tick, TimeSeconds, av.VideoFrame)`` for every real picture, in order,
-    decoding from the last keyframe before ``StartSeconds``."""
+    decoding from the last keyframe before ``StartSeconds``. ``Info`` gets
+    ``LastRealSeconds``: the end of the real video in the whole file."""
     import av
 
-    Wanted, LastKey = [], None
+    Wanted, LastKey, Previous, Waiting, LastReal = [], None, None, False, None
     for Tick, Offset, Size, IsKey in AviChunks(VideoPath):
         if not Size:
             continue
         T = Tick / NativeFps
+        if Previous is not None and T - Previous > MaxHoldSeconds:
+            Waiting = True                            # a gap: stray chunks until the next keyframe are not video
+        Previous = T
+        if Waiting and not IsKey:
+            continue
+        Waiting = False
+        LastReal = T
         if EndSeconds is not None and T > EndSeconds:
-            break
+            continue                                  # walk on: LastRealSeconds is of the whole file
         if T < StartSeconds:
             if IsKey:
                 Wanted, LastKey = [(Tick, Offset, Size)], Tick
@@ -63,6 +76,8 @@ def _AviPictures(VideoPath, NativeFps, StartSeconds, EndSeconds):
         if not Wanted and not IsKey:
             continue                                  # nothing decodable before the first keyframe
         Wanted.append((Tick, Offset, Size))
+    if Info is not None:
+        Info["LastRealSeconds"] = None if LastReal is None else round(LastReal, 3)
     Codec = av.CodecContext.create("h264", "r")
     Codec.thread_type = "AUTO"
     with open(VideoPath, "rb") as F:
@@ -93,15 +108,19 @@ def _OtherPictures(VideoPath, StartSeconds, EndSeconds):
             yield Index, T, Frame
 
 
-def SampleFrames(VideoPath, TargetFps=5, StartSeconds=0.0, EndSeconds=None, NativeFps=None, Info=None):
+def SampleFrames(VideoPath, TargetFps=5, StartSeconds=0.0, EndSeconds=None, NativeFps=None, Info=None,
+                 MaxHoldSeconds=5.0):
     """Yield ``(Tick, TimeSeconds, BGR frame)`` at ``StartSeconds + k / TargetFps``
     up to the last real picture (or ``EndSeconds``). ``NativeFps``: ticks per
     second of an AVI (default: the rate its header claims, 150 for our cameras).
-    ``Info`` (a dict) receives ``LastRealSeconds`` and ``RealPictures``."""
+    ``Info`` (a dict) receives ``LastRealSeconds`` (the end of the real video
+    in the whole file, also when ``StartSeconds`` is after it) and ``RealPictures``.
+    A picture is held at most ``MaxHoldSeconds``; nothing is yielded in a longer gap."""
     VideoPath = Path(VideoPath)
     IsAvi = VideoPath.suffix.lower() == ".avi"
     NativeFps = float(NativeFps or (HeaderFps(VideoPath) if IsAvi else 30.0))
-    Pictures = (_AviPictures(VideoPath, NativeFps, StartSeconds, EndSeconds) if IsAvi
+    Walk = {}
+    Pictures = (_AviPictures(VideoPath, NativeFps, StartSeconds, EndSeconds, MaxHoldSeconds, Walk) if IsAvi
                 else _OtherPictures(VideoPath, StartSeconds, EndSeconds))
     Step, K = 1.0 / TargetFps, 0
     Current, CurrentArray, Count, LastT = None, None, 0, None
@@ -111,6 +130,9 @@ def SampleFrames(VideoPath, TargetFps=5, StartSeconds=0.0, EndSeconds=None, Nati
             TargetT = StartSeconds + K * Step
             if EndSeconds is not None and TargetT > EndSeconds:
                 break
+            if TargetT > Current[2] + MaxHoldSeconds:     # a gap without pictures: skip to the next one
+                K = max(K + 1, math.ceil((T - StartSeconds) / Step - 1e-9))
+                continue
             if CurrentArray is None:
                 CurrentArray = Current[1].to_ndarray(format="bgr24")
             yield Current[0], round(TargetT, 3), CurrentArray
@@ -122,5 +144,6 @@ def SampleFrames(VideoPath, TargetFps=5, StartSeconds=0.0, EndSeconds=None, Nati
         yield Current[0], round(StartSeconds + K * Step, 3), (
             CurrentArray if CurrentArray is not None else Current[1].to_ndarray(format="bgr24"))
     if Info is not None:
-        Info.update({"LastRealSeconds": None if LastT is None else round(LastT, 3), "RealPictures": Count,
+        Info.update({"LastRealSeconds": Walk.get("LastRealSeconds", None if LastT is None else round(LastT, 3)),
+                     "RealPictures": Count,
                      "NativeFps": NativeFps})
