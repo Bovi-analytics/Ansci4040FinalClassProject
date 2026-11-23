@@ -17,6 +17,7 @@ RawVideoDir = GroupDir / "CalvingPenVideos "
 OutputRoot = GroupDir / "CalvingPenPipelineOutputs"   # one subfolder per video, then one per step
 ParlorVideoDir = GroupDir / "EntryParlorVideos"
 ParlorOutputRoot = GroupDir / "ParlorPipelineOutputs"   # same layout, for the milking-parlor videos
+ReidOutputRoot = GroupDir / "ReidPipelineOutputs"       # re-ID design v2: one folder per validation, then per video
 
 VideoTypes = (".avi", ".mp4", ".mov", ".mkv")
 

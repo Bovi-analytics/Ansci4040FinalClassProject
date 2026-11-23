@@ -131,6 +131,35 @@ Use the new name without `.avi` as `VideoStem` for videos run from now on.
 YOLO's boxes). It uses YOLO26m (crowded scene) and 5 fps (cows walk in fast), and writes to
 `ParlorPipelineOutputs/<video>/`. Cow IDs come later from the parlor stall list (BoviSync), matched by stall position.
 
+## Re-ID (design v2: `reid-pipeline-design.md`)
+
+`ReidValidation.ipynb` runs the new re-ID pipeline (code in `CalvingPipeline/Reid/`). **The tracker only follows, it never names**: YOLO26n + ByteTrack give anonymous track pieces (one cow can have hundreds), and an offline identity layer names every piece, or says "?" when unsure.
+
+1. **Track + crops** (`Segments.TrackAndCrop`):
+   - one pass per video at 5 fps;
+   - times come from the AVI chunks (`Frames.py`, PyAV), never from the broken container timestamps, and reading stops at the last real picture;
+   - every 15 s, SAM 2.1 masks every boxed cow and the masked cow is saved as a **canonical crop**: background flat, body turned upright, contrast stretched, 224 × 224.
+2. **Fingerprints** (`Bands.EmbedBands`): DINOv3 ViT-S/16 on 8 bands per crop (the whole crop and its 3 thirds, each also turned 180°).
+3. **Labelling** (`Labels.py`):
+   - a contact sheet per track, plus suggested groups (alike tracks never seen together);
+   - a person fills `Labels.csv` (cow A, B, …; `new`; `X`).
+4. **Naming** (`Identity.NameTracks`):
+   - the crops are gated first: size, touching another cow, two cows in one mask, coloured (staff);
+   - every 3 min each live track is scored per cow: the mean of its 5 best matches to that cow's labelled crops. Labelled gallery crops count 0.6 and the video's own confidently named crops (from at least 30 min earlier) count 0.4;
+   - one joint assignment means two tracks seen together never share a cow;
+   - a name only changes on a clear margin, and holds for the whole track;
+   - "?" when unsure, "new" below the threshold.
+5. **Validation v1** (`Validate.py`):
+   - Pen 3, 26 Sep: part 1 (`CalvingPen3Sep26Cow1.avi`) is the labelled gallery, part 2 (`CalvingPen3Sep26Cow2.avi`) is the test;
+   - the settings are tuned on part 1 only and frozen (`Tuned.json`);
+   - scores are in cow-minutes, with the first 10 min of part 2 apart.
+
+Outputs: `ReidPipelineOutputs/<Run>/`.
+
+Ported from [Sonam525/Re-id-for-tracking](https://github.com/Sonam525/Re-id-for-tracking) (MIT, `Reid/NOTICE.md`), with one fix: the source's canonical crop turned the cow the wrong way. A cow at 30° stayed tilted and one at 135° came out lying; ours is upright at any angle.
+
+The design notes that `CowN` in the file names is probably the **part number** of a day's export, not a cow. If so, the old pool's labels (Cow1 = the file's cow) are not identities. The re-ID pipeline uses only human labels.
+
 ## Hugging Face token for DINOv3 (step 05)
 
 Step 05 uses **DINOv3**, which Meta shares on Hugging Face only after you accept its license. Each person who runs step 05 (in `Step05*`, `PipelineSteps` or `RunPipeline`) needs their own free token, set up once:
@@ -191,8 +220,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | - | `BaselineByteTrack.ipynb`: the old tracker, for comparison only | T4, ~20 min | done |
 | 01–06 | `PipelineSteps.ipynb`: **all steps in one notebook**, one cell per step, for a **list of videos** (each cell runs its step for every video; finished steps are skipped, so a rerun after a disconnect continues) | T4 | ready |
 | 01–06 | `RunPipeline.ipynb`: all steps for a list of videos, then the pool | T4, ~1.5–2 h per hour of video | ready |
-| 07 | Re-ID prediction | | |
-| 08 | Evaluation | | |
+| Re-ID | `ReidValidation.ipynb`: track + canonical crops, 8-band fingerprints, labelling sheets, identity layer, validation v1 (see *Re-ID* above) | T4, ~1–2 h per part + labelling | ready, not run yet |
 
 ## Conventions
 
