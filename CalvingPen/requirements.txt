@@ -1,3 +1,5 @@
 ultralytics>=8.4
 lap>=0.5.12
 transformers>=4.56   # DINOv3
+av>=12          # re-ID: decode the AVI chunks ourselves
+scipy           # re-ID: joint assignment (Hungarian)
