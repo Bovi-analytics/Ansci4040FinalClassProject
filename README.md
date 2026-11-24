@@ -29,7 +29,7 @@ Team Vacca: This group was tasked with collecting BoviSync reports to match cows
 | Week 4 | Finalize the project. |
 
 **Tentative Project** Due Date: November 24th @ 4:30 PM
-**Project Presentation**: December 2nd @ 10:10 AM
+**Project Presentation**: December 7nd @ 10:10 AM
 
 ## Final deliverable and assessment
 The success of this project should be judged based on completion of the project goal and the quality of final presentation delivery
