@@ -389,3 +389,56 @@ def CowSheets(Crops, Ids, OutputDir, PerTrack=6, TileSize=120) -> Path:
             Tiles += Row + [np.full((TileSize, TileSize, 3), 30, np.uint8)] * (PerTrack - len(Row))
         cv2.imwrite(str(Out / f"{Cow}.jpg"), _Sheet(Tiles, PerTrack, TileSize))
     return Out
+
+
+# ---------------------------------------------------------------- one milking: calving cows -> their parlor turn
+
+def TurnCows(Report, ClockMinute, Side=None, EnterMinutes=8, StayMinutes=12) -> set:
+    """Cows of every turn that could be in the parlor at ``ClockMinute``
+    (only stall side ``Side`` "A"/"B", or both)."""
+    Live = Report[(Report.TurnMinute - EnterMinutes <= ClockMinute) & (ClockMinute <= Report.TurnMinute + StayMinutes)]
+    if Side is not None:
+        Live = Live[Live.Side == Side]
+    return set(Live.CowId)
+
+
+def RankCalvedCows(Crops, Bands, ParlorCrops, ParlorBands, Report, Calved, SideOnLeft=None, MinCrops=3, Middle=0.5,
+                   **Turn) -> pd.DataFrame:
+    """With ONE milking: per calving-pen track, every cow in ``Calved`` (the
+    cows that calved around the video's day) gets the similarity of the
+    most alike parlor track that could be her: a track on her stall side of
+    the picture whose time falls in her turn. ``SideOnLeft``: the stall side
+    ("A" = stalls 1-28) on the left half of the picture; None = try both and
+    keep the layout whose best cows are clearer (higher mean margin), see
+    ``Layout``. Returns per track: the best cow, its score, the runner-up,
+    the margin, and how many calved cows were milked then (chance = 1 / that).
+    ``ParlorCrops.TimeSeconds`` must be seconds of the day."""
+    if SideOnLeft is None:
+        Tried = [RankCalvedCows(Crops, Bands, ParlorCrops, ParlorBands, Report, Calved, S, MinCrops, Middle, **Turn)
+                 for S in ("A", "B")]
+        Tried = [T for T in Tried if len(T)]
+        return max(Tried, key=lambda T: T.Margin.fillna(0).mean()) if Tried else pd.DataFrame()
+    P = TrackVectors(ParlorCrops, ParlorBands)
+    PIds = np.array(list(P))
+    PMat = np.stack([P[T] for T in PIds])
+    G = ParlorCrops.groupby("TrackId")
+    Minute = G.TimeSeconds.median() / 60
+    X = ((ParlorCrops.X1 + ParlorCrops.X2) / 2 / ParlorCrops.get("Width", 1920)).groupby(ParlorCrops.TrackId).median()
+    Other = "B" if SideOnLeft == "A" else "A"
+    Side = {T: SideOnLeft if X[T] < Middle else Other for T in PIds}
+    Holds = {Cow: np.array([Cow in TurnCows(Report, Minute[T], Side[T], **Turn) for T in PIds]) for Cow in Calved}
+    Present = [Cow for Cow in Calved if Holds[Cow].any()]
+    Q = TrackVectors(Crops, Bands)
+    Counts = Crops.TrackId.value_counts()
+    Rows = []
+    for T, V in Q.items():
+        if Counts[T] < MinCrops or not Present:
+            continue
+        Sim = PMat @ V
+        Score = {Cow: float(Sim[Holds[Cow]].max()) for Cow in Present}
+        Order = sorted(Score, key=Score.get, reverse=True)
+        Rows.append({"TrackId": T, "Crops": int(Counts[T]), "BestCow": Order[0], "Score": round(Score[Order[0]], 3),
+                     "SecondCow": Order[1] if len(Order) > 1 else None,
+                     "Margin": round(Score[Order[0]] - Score[Order[1]], 3) if len(Order) > 1 else None,
+                     "CalvedInParlor": len(Present), "Layout": f"stalls 1-28 {'left' if SideOnLeft == 'A' else 'right'}"})
+    return pd.DataFrame(Rows).sort_values("Crops", ascending=False).reset_index(drop=True) if Rows else pd.DataFrame()

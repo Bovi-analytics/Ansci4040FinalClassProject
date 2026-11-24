@@ -173,7 +173,13 @@ The design notes that `CowN` in the file names is probably the **part number** o
    - per cow, the code picks one track per milking that holds her (by turn and side of the picture) and that look most alike. She is named only if that choice clearly beats the others;
    - which picture side holds stalls 1–28 is found by trying both.
    Check `Names/Cows/<CowId>.jpg` (one row per milking).
-4. **Calving pens** (`MatchCalving`): the busiest 15-min windows of the Nov 11–12 calving videos are named against the parlor pool. The score is the share of crops whose best cow calved within a day of the video (`Nov11To15Calvings.xlsx`), next to the chance level.
+4. **One milking is enough** (`RankCalvedCows`, the default: `Milkings = [2]`, midday):
+   - for each calving-pen cow, every cow that calved within a day of the video is scored by the most alike parlor track that could be her (her stall side of the picture, her turn's time);
+   - the top one is her likely farm ID, and the chance level is 1 / the number of calved cows milked then;
+   - two calved cows in the same turn on the same side tie (Margin 0); a second milking separates them;
+   - which side of the picture holds stalls 1–28 is chosen once for all videos (the clearer answers);
+   - dry run on simulated cows with the real report: 4 of 4 right, 1 of them a tie.
+5. **Calving pens with 2+ milkings** (`MatchCalving`): the busiest 15-min windows of the Nov 11–12 calving videos are named against the parlor pool. The score is the share of crops whose best cow calved within a day of the video (`Nov11To15Calvings.xlsx`), next to the chance level.
 
 12 of the 15 cows that calved on Nov 11–12 are milked at least twice on Nov 17, so they can be in the pool. A dry run on simulated cows with the real report named 73 parlor cows with no errors. It has not run on video yet.
 
