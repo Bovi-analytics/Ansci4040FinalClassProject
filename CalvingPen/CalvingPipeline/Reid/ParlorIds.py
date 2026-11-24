@@ -447,3 +447,42 @@ def RankCalvedCows(Crops, Bands, ParlorCrops, ParlorBands, Report, Calved, SideO
                      "Margin": round(Score[Order[0]] - Score[Order[1]], 3) if len(Order) > 1 else None,
                      "CalvedInParlor": len(Present), "Layout": f"stalls 1-28 {'left' if SideOnLeft == 'A' else 'right'}"})
     return pd.DataFrame(Rows).sort_values("Crops", ascending=False).reset_index(drop=True) if Rows else pd.DataFrame()
+
+
+# ---------------------------------------------------------------- crops made earlier by the step pipeline
+
+def ImportOldCrops(StepDir, OutputDir, FrameSize=(1080, 1920)) -> pd.DataFrame:
+    """Use the crops of the earlier step pipeline (``<video>/Step04bCropFull``:
+    Crops.csv with TrackId, TimeSeconds, CropPath, box, MaskFraction) without
+    tracking again: writes a Crops.csv in this pipeline's form in
+    ``OutputDir`` that points at the existing crop images (full paths; nothing
+    is copied), plus Tracks.csv and a blank FirstFrame.jpg of the video's
+    size (so the gates scale). ``EmbedBands`` and ``LoadVideo`` then work on
+    ``OutputDir``. Skipped when done for the same Crops.csv."""
+    import cv2
+
+    from .Segments import CropColumns
+
+    StepDir, OutputDir = Path(StepDir), Path(OutputDir)
+    Source = StepDir / "Crops.csv"
+    OutputDir.mkdir(parents=True, exist_ok=True)
+    Stamp = f"{Source}:{Source.stat().st_size}"
+    Done = OutputDir / "Source.txt"
+    if Done.exists() and Done.read_text() == Stamp and (OutputDir / "Crops.csv").exists():
+        print(f"{OutputDir.name}: already imported")
+        return pd.read_csv(OutputDir / "Crops.csv")
+    Old = pd.read_csv(Source)
+    W, H = (Old.X2 - Old.X1).clip(lower=1), (Old.Y2 - Old.Y1).clip(lower=1)
+    Area = (W * H * Old.get("MaskFraction", pd.Series(0.5, index=Old.index))).round().astype(int)
+    Table = pd.DataFrame({
+        "TrackId": Old.TrackId, "Tick": Old.get("Frame", 0), "TimeSeconds": Old.TimeSeconds,
+        "CropPath": [str(StepDir / P) for P in Old.CropPath], "X1": Old.X1, "Y1": Old.Y1, "X2": Old.X2, "Y2": Old.Y2,
+        "Confidence": Old.get("Confidence", 1.0), "MaskArea": Area, "NeighbourIos": 0.0, "Elongation": np.nan,
+        "BoxAspect": (W / H).round(3), "ColouredFraction": 0.0, "FrameSaturation": 40.0, "Night": False})[CropColumns]
+    Table = Table[[Path(P).exists() for P in Table.CropPath]].reset_index(drop=True)
+    Table.to_csv(OutputDir / "Crops.csv", index=False)
+    Table[["Tick", "TimeSeconds", "TrackId", "X1", "Y1", "X2", "Y2", "Confidence"]].to_csv(OutputDir / "Tracks.csv", index=False)
+    cv2.imwrite(str(OutputDir / "FirstFrame.jpg"), np.zeros((*FrameSize, 3), np.uint8))
+    Done.write_text(Stamp)
+    print(f"{OutputDir.name}: {len(Table)} crops of {Table.TrackId.nunique()} tracks from {StepDir.parent.name}")
+    return Table
