@@ -58,6 +58,9 @@ def EmbedBands(VideoDir, Token=None, ModelId=DinoV3, BatchCrops=16, Redo=False) 
             print(f"{VideoDir.name}: bands up to date ({len(Old['CropPath'])} crops)")
             return {"Crops": int(len(Old["CropPath"])), "Skipped": True}
     Crops = pd.read_csv(VideoDir / "Crops.csv")
+    if Crops.empty:
+        print(f"{VideoDir.name}: no crops (no cow found), skipped")
+        return {"Crops": 0, "Skipped": True}
     Processor, Model, Used = LoadEmbedder(ModelId, FallbackModelId=None, Token=Token)
     Device = "cuda" if torch.cuda.is_available() else "cpu"
     DType = torch.float16 if Device == "cuda" else torch.float32
@@ -83,6 +86,9 @@ def EmbedBands(VideoDir, Token=None, ModelId=DinoV3, BatchCrops=16, Redo=False) 
         Paths += Names
         if (Start // BatchCrops) % 50 == 0:
             print(f"  {Start + len(Names)}/{len(Crops)} crops, {(time.time() - Started) / 60:.1f} min")
+    if not Vectors:
+        print(f"{VideoDir.name}: none of the crop images could be read, skipped")
+        return {"Crops": 0, "Skipped": True}
     Bands = np.concatenate(Vectors).astype(np.float16)
     np.savez_compressed(OutPath, CropPath=np.array(Paths), Bands=Bands, CropsMd5=np.array(Md5), ModelId=np.array(Used))
     print(f"{VideoDir.name}: {Bands.shape} in {(time.time() - Started) / 60:.1f} min -> {OutPath.name}")
