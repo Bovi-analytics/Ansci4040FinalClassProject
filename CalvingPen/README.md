@@ -184,7 +184,8 @@ The design notes that `CowN` in the file names is probably the **part number** o
    - two calved cows in the same turn on the same side tie (Margin 0); a second milking separates them;
    - which side of the picture holds stalls 1–28 is chosen once for all videos (the clearer answers);
    - dry run on simulated cows with the real report: 4 of 4 right, 1 of them a tie.
-5. **Calving pens with 2+ milkings** (`MatchCalving`): the busiest 15-min windows of the Nov 11–12 calving videos are named against the parlor pool. The score is the share of crops whose best cow calved within a day of the video (`Nov11To15Calvings.xlsx`), next to the chance level.
+5. **Hub correction** (`HubStats`, `HubCorrection = True`): every parlor cow's score is z-scored over all calving crops, so a few generic-looking parlor crops no longer win for every video. On the Nov 11-12 calving crops vs the team's parlor pool: top cows went from 6 to 10 different ones over 11 videos, and one video (Pen 3, Nov 12, Cow5 Win2) matched 24292, who calved on Nov 13 (rank 1; rank 5 and 11 in the other two Pen 3 Nov 12 windows). Over all videos this is not better than chance (p = 0.18), so 24292 is a candidate to check by ear tag, not a result.
+6. **Calving pens with 2+ milkings** (`MatchCalving`): the busiest 15-min windows of the Nov 11–12 calving videos are named against the parlor pool. The score is the share of crops whose best cow calved within a day of the video (`Nov11To15Calvings.xlsx`), next to the chance level.
 
 12 of the 15 cows that calved on Nov 11–12 are milked at least twice on Nov 17, so they can be in the pool. A dry run on simulated cows with the real report named 73 parlor cows with no errors. It has not run on video yet.
 

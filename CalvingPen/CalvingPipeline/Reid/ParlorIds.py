@@ -303,13 +303,26 @@ def NameParlor(Crops, Bands, Report, OffsetMinutes, Width, OutputDir=None, **Set
 
 # ---------------------------------------------------------------- calving pen -> parlor
 
-def MatchCalving(Crops, Bands, PoolCrops, PoolBands, Expected=None, TopK=5) -> pd.DataFrame:
+def HubStats(BandsList, PoolCrops, PoolBands, TopK=5):
+    """Per pool cow: the mean and spread of her scores over ALL calving crops
+    (``BandsList``: one Bands array per calving folder). Some parlor crops
+    look a bit like every cow ("hubs") and would win everywhere; ``MatchCalving``
+    with these z-scores each cow against her own average instead."""
+    Cows = sorted(PoolCrops.CowId.unique())
+    TopK = min(TopK, PoolCrops.CowId.value_counts().min())
+    All = np.concatenate([CropScores(B, PoolBands, PoolCrops.CowId.to_numpy(), Cows, TopK=TopK) for B in BandsList if len(B)])
+    return np.nanmean(All, 0), np.nanstd(All, 0) + 1e-6
+
+
+def MatchCalving(Crops, Bands, PoolCrops, PoolBands, Expected=None, TopK=5, Hub=None) -> pd.DataFrame:
     """Per calving-pen track: the parlor cow it looks most like (``CropScores``
     averaged over its crops), the runner-up, the margin, and whether the best
     cow is in ``Expected`` (e.g. the cows that calved that day: a check, since
     the pool also holds many cows that did not)."""
     Cows = sorted(PoolCrops.CowId.unique())
     Scores = CropScores(Bands, PoolBands, PoolCrops.CowId.to_numpy(), Cows, TopK=min(TopK, PoolCrops.CowId.value_counts().min()))
+    if Hub is not None:                                   # z-score per cow (HubStats): hub crops stop winning everywhere
+        Scores = (Scores - Hub[0]) / Hub[1]
     Rows = []
     for TrackId, Sel in Crops.reset_index(drop=True).groupby("TrackId").groups.items():
         Mean = np.nanmean(Scores[list(Sel)], 0)
