@@ -56,6 +56,8 @@ def _FrameSaturation(Frame) -> float:
 def _Masks(Sam, Frame, Boxes):
     H, W = Frame.shape[:2]
     Result = Sam(Frame, bboxes=[list(B) for B in Boxes], verbose=False)[0]
+    if Result.masks is None or len(Result.masks.data) == 0:
+        return np.zeros((0, H, W), bool)            # SAM found nothing in these boxes (seen in the parlor)
     Masks = Result.masks.data.cpu().numpy().astype(bool)
     if Masks.shape[1:] != (H, W):
         Masks = np.stack([cv2.resize(M.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST) > 0 for M in Masks])
@@ -137,7 +139,9 @@ def TrackAndCrop(VideoPath, OutputDir, TargetFps=5, EverySeconds=15, StartSecond
                     TrackWriter.writerow([Tick, T, Id + Offset, *Box.tolist(), round(Conf, 3)])
             if Boxes and Count % CropEvery == 0:
                 Masks = _Masks(Sam, Frame, [B[1:5] for B in Boxes])
-                Overlap = _NeighbourIos(Masks)
+                if len(Masks) != len(Boxes):                # no mask (or not one per box): no crops from this frame
+                    Masks, Boxes = [], []
+                Overlap = _NeighbourIos(Masks) if len(Masks) else []
                 Saturation = _FrameSaturation(Frame)
                 Pil = Image.fromarray(cv2.cvtColor(Frame, cv2.COLOR_BGR2RGB))
                 for (Id, X1, Y1, X2, Y2, Conf), Mask, Ios in zip(Boxes, Masks, Overlap):
