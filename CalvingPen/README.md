@@ -140,7 +140,7 @@ YOLO's boxes). It uses YOLO26m (crowded scene) and 5 fps (cows walk in fast), an
    - times come from the AVI chunks (`Frames.py`, PyAV), never from the broken container timestamps, and reading stops at the last real picture;
    - every 15 s, SAM 2.1 masks every boxed cow and the masked cow is saved as a **canonical crop**: background flat, body turned upright, contrast stretched, 224 × 224.
 2. **Fingerprints** (`Bands.EmbedBands`): DINOv3 ViT-S/16 on 8 bands per crop (the whole crop and its 3 thirds, each also turned 180°).
-3. **Pen area** (`PenArea.py`): each camera also sees the next pens (cows behind the front gate, far back, and the group pen on the right). Only crops whose box bottom is on the pen floor are kept. In Pen3Sep26 that left out 652 of 960 crops in part 1 and 356 of 386 in part 2, which caused most of the wrong groups. There is one polygon per pen in `PenAreas`. Only pen 3 is drawn so far; check it with `DrawPenArea` (`<part>/PenArea.jpg`).
+3. **Pen area** (`PenArea.py`): each camera also sees the next pens (cows behind the front gate, far back, and the group pen on the right). Only crops whose box bottom is on the pen floor are kept. In Pen3Sep26 that left out 652 of 960 crops in part 1 and 356 of 386 in part 2, which caused most of the wrong groups. There is one polygon per camera view in `PenAreas` (the cameras moved between September and November). Only Pen 3 on 26 Sep is drawn so far; check it with `DrawPenArea` (`<part>/PenArea.jpg`).
 4. **Labelling** (`Labels.py`):
    - a contact sheet per track, plus suggested groups (alike tracks never seen together);
    - a person fills `Labels.csv` (cow A, B, …; `new`; `X`).

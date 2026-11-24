@@ -6,27 +6,29 @@ the crops (part 1) and 92 % (part 2) were of those cows, and they made most of
 the wrong groups. A crop counts only when the middle of its box's bottom edge
 (where the cow stands or lies) is inside the polygon.
 
-``PenAreas``: one polygon per pen number, drawn on the first frame. A pen
-without a polygon is not filtered (a warning is printed). To add or check one,
+``PenAreas``: one polygon per camera view, keyed by the start of the video
+name (``CalvingPen3Sep26``). The cameras were moved between September and
+November, so a key holds only for the dates it was drawn on. A video without
+a polygon is not filtered (a warning is printed). To add or check one,
 ``DrawPenArea(VideoDir)`` writes ``<VideoDir>/PenArea.jpg``: yellow = the
 polygon, green = crops kept, red = crops left out.
 """
 
-import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 PenAreas = {
-    3: [(0, 705), (90, 690), (590, 645), (1205, 600), (1245, 600), (1140, 1080), (0, 1080)],   # checked on Pen3Sep26 parts 1 and 2
+    "CalvingPen3Sep26": [(0, 705), (90, 690), (590, 645), (1205, 600), (1245, 600), (1140, 1080), (0, 1080)],   # checked on Pen3Sep26 parts 1 and 2
 }
 
 
 def PenAreaFor(VideoFile):
-    """Polygon of the pen in ``VideoFile``'s name (CalvingPen3...), or None."""
-    Found = re.search(r"CalvingPen(\d+)", Path(str(VideoFile)).name, re.I)
-    Area = PenAreas.get(int(Found.group(1))) if Found else None
+    """Polygon of the camera view ``VideoFile`` starts with (the longest key), or None."""
+    Name = Path(str(VideoFile)).name.lower()
+    Keys = sorted((K for K in PenAreas if Name.startswith(K.lower())), key=len)
+    Area = PenAreas[Keys[-1]] if Keys else None
     if Area is None:
         print(f"No pen area for {Path(str(VideoFile)).name}: cows in the next pens are not left out. "
               "Add a polygon to PenArea.PenAreas (check it with DrawPenArea).")
