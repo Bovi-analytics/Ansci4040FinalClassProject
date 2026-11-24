@@ -165,7 +165,7 @@ The design notes that `CowN` in the file names is probably the **part number** o
 
 `ReidParlorCalving.ipynb` (code: `CalvingPipeline/Reid/ParlorIds.py`) names cows with their **farm ID**, without labelling by hand.
 
-1. **Parlor clock** (`AlignClock`): the recorder saves pictures only when something moves. The video's busy minutes are matched to the milkings in the BoviSync parlor report (`Nov17Parlor.xlsx`). This gives each parlor video's time of day.
+1. **Parlor clock** (`PartOffsets`): the entry-parlor camera records all the time and cuts a file every 8 h. So part 1 = 00:00–08:00, part 2 = 08:00–16:00, part 3 = 16:00–24:00, and each milking of the BoviSync parlor report (`Nov17Parlor.xlsx`) falls in one part. `Parlor/<video>Milkings.jpg` shows a picture from the middle of each milking to check it. (Matching busy minutes to milkings, `AlignClock`, does not work here: 900 pictures every minute, day and night.)
 2. **Parlor tracks** (YOLO26m + ByteTrack, SAM 2.1 crops, DINOv3 bands) during the milkings only.
 3. **Naming parlor cows** (`NameParlor`):
    - a *turn* = one side of the parlor filling up (its cows share one attach minute in the report);

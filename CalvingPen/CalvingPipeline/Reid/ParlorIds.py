@@ -8,10 +8,10 @@ with different neighbours each time. So:
 
 1. ``ReadParlorReport``: the report, with ``Session`` (milking), ``Side`` and
    ``Turn`` per row (rows without a stall are left out: not milked).
-2. ``AlignClock``: the video's clock. The recorder only saves a picture when
-   something moves, so the real frames per minute (``AviFrames.AviActivity``)
-   peak during the milkings; the offset that puts the peaks on the report's
-   sessions is the video's start time of day.
+2. The video's clock (``PartOffsets``): the entry-parlor camera records all
+   the time and cuts a file every 8 h (00:00, 08:00, 16:00), so each part's
+   start is its place in the day. ``AlignClock`` (busy minutes = milkings)
+   only works for cameras that save a picture only when something moves.
 3. ``SessionWindows``: the video stretch of each milking, to track only those.
 4. ``TrackCandidates``: per track (TrackAndCrop, run on those windows), the
    cows of every turn whose cows could be in the parlor at the track's time,
@@ -118,6 +118,61 @@ def AlignClock(Activity, Report, MinOffset=0, MaxOffset=24 * 60, **Spans) -> dic
     Far = next((S for S in Scores[1:] if abs(S[1] - Best[1]) > 30), Scores[-1])   # best offset more than 30 min away
     return {"OffsetMinutes": Best[1], "ShareInside": round(Best[2], 3), "NextBestOffset": Far[1],
             "NextBestShare": round(Far[2], 3)}
+
+
+def PartOffsets(VideoMinutes, Starts=None, DayStart="00:00") -> list:
+    """Clock minute at which each part of a day's recording starts. The entry
+    parlor camera records all the time (900 pictures every minute) and cuts a
+    new file every 8 h, so by default the parts follow each other from
+    ``DayStart``. ``Starts``: one "HH:MM" per part to set them by hand."""
+    def Minute(Text):
+        H, M = map(int, str(Text).split(":")[:2])
+        return H * 60 + M
+    if Starts:
+        return [Minute(S) for S in Starts]
+    Out, Now = [], Minute(DayStart)
+    for M in VideoMinutes:
+        Out.append(Now)
+        Now += M
+    return Out
+
+
+def RecordedMinutes(Activity) -> float:
+    """Length of a recording in minutes from ``AviActivity`` (the last minute
+    counted by the share of it that holds pictures)."""
+    Counts = Activity.RealFrames.to_numpy(float)
+    if len(Counts) < 2:
+        return float(len(Counts))
+    return len(Counts) - 1 + min(1.0, Counts[-1] / max(np.median(Counts), 1))
+
+
+def SteadyRecording(Activity, MaxSpread=0.05) -> bool:
+    """True when the real pictures per minute hardly change (the camera
+    records all the time): then ``AlignClock`` cannot find the milkings."""
+    Counts = Activity.RealFrames.to_numpy(float)[:-1] if len(Activity) > 1 else Activity.RealFrames.to_numpy(float)
+    return bool(len(Counts) and Counts.std() <= MaxSpread * max(Counts.mean(), 1))
+
+
+def MilkingFrames(VideoPath, Windows, OutPath, Width=640, NativeFps=None):
+    """One picture from the middle of each milking window, side by side, to
+    check by eye that the clock is right (cows in the stalls)."""
+    import cv2
+
+    from .Frames import SampleFrames
+
+    Tiles = []
+    for W in Windows:
+        Middle = (W["StartSeconds"] + W["EndSeconds"]) / 2
+        for _, T, Frame in SampleFrames(VideoPath, 1, Middle, Middle + 2, NativeFps):
+            Scale = Width / Frame.shape[1]
+            Tile = cv2.resize(Frame, None, fx=Scale, fy=Scale)
+            cv2.putText(Tile, f"milking {W['Session']}", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            Tiles.append(Tile)
+            break
+    if Tiles:
+        H = max(T.shape[0] for T in Tiles)
+        cv2.imwrite(str(OutPath), np.hstack([cv2.copyMakeBorder(T, 0, H - T.shape[0], 0, 0, cv2.BORDER_CONSTANT) for T in Tiles]))
+    return OutPath if Tiles else None
 
 
 def SessionWindows(Report, OffsetMinutes, VideoMinutes, **Spans) -> pd.DataFrame:
