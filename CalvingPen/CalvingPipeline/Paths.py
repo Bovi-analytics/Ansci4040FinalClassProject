@@ -19,6 +19,7 @@ ParlorVideoDir = GroupDir / "EntryParlorVideos"
 ParlorOutputRoot = GroupDir / "ParlorPipelineOutputs"   # same layout, for the milking-parlor videos
 ReidOutputRoot = GroupDir / "ReidPipelineOutputs"       # re-ID design v2: one folder per validation, then per video
 MaskedVideoRoot = GroupDir / "MaskedVideos"             # people blacked out (Privacy.py): the copies students use
+BoviSyncDir = GroupDir / "BoviSyncRecords"              # farm records: calvings (Freshen events), parlor reports
 
 VideoTypes = (".avi", ".mp4", ".mov", ".mkv")
 

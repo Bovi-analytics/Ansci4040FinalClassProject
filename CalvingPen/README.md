@@ -161,6 +161,22 @@ Ported from [Sonam525/Re-id-for-tracking](https://github.com/Sonam525/Re-id-for-
 
 The design notes that `CowN` in the file names is probably the **part number** of a day's export, not a cow. If so, the old pool's labels (Cow1 = the file's cow) are not identities. The re-ID pipeline uses only human labels.
 
+## Real farm IDs: parlor pool → calving pens
+
+`ReidParlorCalving.ipynb` (code: `CalvingPipeline/Reid/ParlorIds.py`) names cows with their **farm ID**, without labelling by hand.
+
+1. **Parlor clock** (`AlignClock`): the recorder saves pictures only when something moves. The video's busy minutes are matched to the milkings in the BoviSync parlor report (`Nov17Parlor.xlsx`). This gives each parlor video's time of day.
+2. **Parlor tracks** (YOLO26m + ByteTrack, SAM 2.1 crops, DINOv3 bands) during the milkings only.
+3. **Naming parlor cows** (`NameParlor`):
+   - a *turn* = one side of the parlor filling up (its cows share one attach minute in the report);
+   - every cow is milked 3 times a day with different neighbours;
+   - per cow, the code picks one track per milking that holds her (by turn and side of the picture) and that look most alike. She is named only if that choice clearly beats the others;
+   - which picture side holds stalls 1–28 is found by trying both.
+   Check `Names/Cows/<CowId>.jpg` (one row per milking).
+4. **Calving pens** (`MatchCalving`): the busiest 15-min windows of the Nov 11–12 calving videos are named against the parlor pool. The score is the share of crops whose best cow calved within a day of the video (`Nov11To15Calvings.xlsx`), next to the chance level.
+
+12 of the 15 cows that calved on Nov 11–12 are milked at least twice on Nov 17, so they can be in the pool. A dry run on simulated cows with the real report named 73 parlor cows with no errors. It has not run on video yet.
+
 ## Masking people (privacy)
 
 `MaskPeople.ipynb` (all videos) and `MaskPeoplePart1-4.ipynb` (a quarter each, to run in parallel) make a copy of **every video on the group drive with every person blacked out**, in `MaskedVideos/` (same folders as the originals). Students and AI tools should get only these copies. Code: `CalvingPipeline/Privacy.py`.
@@ -245,6 +261,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | 01–06 | `PipelineSteps.ipynb`: **all steps in one notebook**, one cell per step, for a **list of videos** (each cell runs its step for every video; finished steps are skipped, so a rerun after a disconnect continues) | T4 | ready |
 | 01–06 | `RunPipeline.ipynb`: all steps for a list of videos, then the pool | T4, ~1.5–2 h per hour of video | ready |
 | Re-ID | `ReidValidation.ipynb`: track + canonical crops, 8-band fingerprints, labelling sheets, identity layer, validation v1 (see *Re-ID* above) | T4, ~1–2 h per part + labelling | ready, not run yet |
+| Farm IDs | `ReidParlorCalving.ipynb`: parlor pool named from the BoviSync parlor report, then calving-pen cows named against it (see *Real farm IDs* above) | T4, ~1 h per milking + ~20 min per calving window | ready, not run yet |
 | Privacy | `MaskPeople.ipynb`, `MaskPeoplePart1-4.ipynb`: every video on the drive with people blacked out, into `MaskedVideos/` (see *Masking people* above) | T4, ~1–2 h per 4-hour video (estimate) | ready, not run yet |
 
 ## Conventions
