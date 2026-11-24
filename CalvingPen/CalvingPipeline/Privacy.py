@@ -87,11 +87,18 @@ def ListAllVideos(Root=None) -> pd.DataFrame:
             Rows.append({"Video": File, "Folder": str(Path(Folder).relative_to(Root)), "SizeGb": Size and round(Size, 2),
                          "Status": ("trial" if Run.get("Settings", {}).get("EndSeconds") else "done") if Run.get("Finished") else "empty" if Run.get("Empty")
                          else "started" if Run else "to do", "Source": str(Source), "Masked": str(Out)})
-    return pd.DataFrame(Rows, columns=["Video", "Folder", "SizeGb", "Status", "Source", "Masked"])
+    Table = pd.DataFrame(Rows, columns=["Video", "Folder", "SizeGb", "Status", "Source", "Masked"])
+    from .Paths import FindRepeats
+    Repeats = FindRepeats(Table.Source)
+    Table.loc[Table.Source.isin(Repeats.Path[~Repeats.Keep]), "Status"] = "repeat"   # same file as another: masked once
+    return Table
 
 
 def SplitParts(Videos: pd.DataFrame, Parts: int) -> list:
-    """Spread the videos over ``Parts`` Colab runs of about equal size (largest first)."""
+    """Spread the videos over ``Parts`` Colab runs of about equal size (largest
+    first). Repeats (the same file twice) are left out."""
+    if "Status" in Videos:
+        Videos = Videos[Videos.Status != "repeat"]
     Bins = [[] for _ in range(Parts)]
     Load = [0.0] * Parts
     for Row in Videos.sort_values("SizeGb", ascending=False, na_position="last").itertuples():

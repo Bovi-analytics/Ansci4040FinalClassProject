@@ -97,3 +97,72 @@ def FindVideo(VideoFile) -> Path:
         f"  Similar names: {Similar[:10] or 'none'}\n"
         f"  Videos in {RawVideoDir.name!r}: {There}\n"
         "  Fix: copy the exact name from ListVideos(), or paste the video's full path as VideoFile.")
+
+
+# ---- repeated videos (the same file uploaded twice, a "Copy of ...", an old and a new name) ----
+
+def VideoFingerprint(VideoPath, SampleBytes=2**20) -> str:
+    """Size + md5 of 1 MB at the start, middle and end: equal for two copies of
+    one file, different for different recordings. Reads 3 MB, not the 4 GB."""
+    import hashlib
+
+    VideoPath = Path(VideoPath)
+    Size = VideoPath.stat().st_size
+    Hash = hashlib.md5(str(Size).encode())
+    with open(VideoPath, "rb") as F:
+        for Start in (0, max(0, Size // 2 - SampleBytes // 2), max(0, Size - SampleBytes)):
+            F.seek(Start)
+            Hash.update(F.read(SampleBytes))
+    return f"{Size}-{Hash.hexdigest()[:16]}"
+
+
+def _KeepScore(P: Path):
+    """Which copy to keep: a PascalCase name (CalvingPen3Nov11Cow2), in the
+    videos folder, not "Copy of", then the shortest path."""
+    Name = P.name
+    return (not Name.startswith("CalvingPen"), "copy" in Name.lower(), P.parent.name != RawVideoDir.name,
+            len(str(P)), str(P))
+
+
+def FindRepeats(Paths_=None, Root=None) -> "pd.DataFrame":
+    """Videos that are byte-for-byte the same as another one (``Paths_``, or every
+    video under the group folder except the pipeline outputs and masked copies).
+    One row per file: ``Fingerprint``, ``Keep`` (True for the copy to use) and
+    ``RepeatOf`` (the kept copy's path). Empty (0-byte) files are listed with
+    ``RepeatOf = "empty file"``. Nothing is deleted: delete the ``Keep = False``
+    rows by hand on Drive."""
+    import os
+
+    import pandas as pd
+
+    if Paths_ is None:
+        Skip = {OutputRoot.name, ParlorOutputRoot.name, ReidOutputRoot.name, MaskedVideoRoot.name}
+        Paths_ = []
+        for Folder, Folders, Files in os.walk(Root or GroupDir, followlinks=True):
+            Folders[:] = [F for F in Folders if F not in Skip and not F.startswith(".")]
+            Paths_ += [Path(Folder) / F for F in Files if Path(F).suffix.lower() in VideoTypes]
+    Rows = []
+    for P in map(Path, Paths_):
+        try:
+            Size = P.stat().st_size
+        except OSError:
+            continue
+        Rows.append({"Path": P, "Video": P.name, "Size": Size})
+    Table = pd.DataFrame(Rows, columns=["Path", "Video", "Size"])
+    if Table.empty:
+        return Table.assign(Fingerprint=[], Keep=[], RepeatOf=[])
+    Same = Table.Size.duplicated(keep=False) & (Table.Size > 0)      # only files of equal size can be copies
+    Table["Fingerprint"] = [VideoFingerprint(P) if S else f"{Z}" for P, Z, S in zip(Table.Path, Table.Size, Same)]
+    Table["Keep"], Table["RepeatOf"] = True, ""
+    for _, Group in Table[Same].groupby("Fingerprint"):
+        if len(Group) < 2:
+            continue
+        Best = min(Group.Path, key=_KeepScore)
+        for I, P in zip(Group.index, Group.Path):
+            if P != Best:
+                Table.loc[I, ["Keep", "RepeatOf"]] = [False, str(Best)]
+    Empty = Table.Size == 0
+    Table.loc[Empty, ["Keep", "RepeatOf"]] = [False, "empty file"]
+    Table["Path"] = Table.Path.astype(str)
+    return Table[~Table.Keep | Table.Fingerprint.isin(Table[~Table.Keep].Fingerprint)].sort_values(
+        ["Fingerprint", "Keep"], ascending=[True, False]).reset_index(drop=True)

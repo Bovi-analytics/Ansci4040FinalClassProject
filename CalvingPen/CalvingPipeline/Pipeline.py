@@ -225,9 +225,15 @@ def ExpandAuto(Videos, OutputRoot=None, AllowScan=True, EverySeconds=30, WindowM
 
 def AllRawVideos(Folder=None) -> list:
     """Every readable raw calving video in the videos folder as an "Auto" entry
-    (leaves out copies, ROI clips and broken shortcuts)."""
-    from .Paths import ListVideos
+    (leaves out copies, ROI clips, broken shortcuts and repeated files: the
+    same video under two names, ``Paths.FindRepeats``)."""
+    from .Paths import FindRepeats, ListVideos, RawVideoDir
 
     Table = ListVideos(Folder, WithDuration=False)
     Keep = Table.SizeGb.notna() & ~Table.VideoFile.str.contains(r"copy|roi", case=False)
+    Repeats = FindRepeats([Path(Folder or RawVideoDir) / F for F in Table.VideoFile[Keep]])
+    Skip = set(Repeats.Video[~Repeats.Keep])
+    if Skip:
+        print(f"Left out (a repeat of another video, or empty): {sorted(Skip)}")
+    Keep &= ~Table.VideoFile.isin(Skip)
     return [dict(VideoFile=F, ClipStart="Auto") for F in Table.VideoFile[Keep]]
