@@ -32,11 +32,12 @@ def _Bbox(Mask):
     return [int(Xs.min()), int(Ys.min()), int(Xs.max()), int(Ys.max())]
 
 
-def CanonicalCrop(Pil, Mask, Pad=10, OutSize=224, ReturnMask=False):
+def CanonicalCrop(Pil, Mask, Pad=10, OutSize=224, ReturnMask=False, MinPixels=None):
     """Pose- and exposure-normalised masked crop (``Pil``: RGB image, ``Mask``:
-    bool array of the same size). None if the mask is under ``MinMaskPixels``.
+    bool array of the same size). None if the mask is under ``MinPixels``
+    (default ``MinMaskPixels``, for 1920 x 1080; smaller for low-resolution video).
     ``ReturnMask``: also return the cow's pixels in the 224 x 224 crop."""
-    if Mask is None or Mask.sum() < MinMaskPixels:
+    if Mask is None or Mask.sum() < (MinMaskPixels if MinPixels is None else MinPixels):
         return (None, None) if ReturnMask else None
     Ys, Xs = np.where(Mask)
     Points = np.stack([Xs, Ys], 1).astype(np.float32)

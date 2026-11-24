@@ -314,10 +314,15 @@ def MatchCalving(Crops, Bands, PoolCrops, PoolBands, Expected=None, TopK=5) -> p
     for TrackId, Sel in Crops.reset_index(drop=True).groupby("TrackId").groups.items():
         Mean = np.nanmean(Scores[list(Sel)], 0)
         Order = np.argsort(-np.nan_to_num(Mean, nan=-9))
-        Rows.append({"TrackId": TrackId, "Crops": len(Sel), "BestCow": Cows[Order[0]], "Score": round(float(Mean[Order[0]]), 3),
-                     "SecondCow": Cows[Order[1]] if len(Cows) > 1 else None,
-                     "Margin": round(float(Mean[Order[0]] - Mean[Order[1]]), 3) if len(Cows) > 1 else None,
-                     "Expected": (Cows[Order[0]] in Expected) if Expected is not None else None})
+        Row = {"TrackId": TrackId, "Crops": len(Sel), "BestCow": Cows[Order[0]], "Score": round(float(Mean[Order[0]]), 3),
+               "SecondCow": Cows[Order[1]] if len(Cows) > 1 else None,
+               "Margin": round(float(Mean[Order[0]] - Mean[Order[1]]), 3) if len(Cows) > 1 else None,
+               "Expected": (Cows[Order[0]] in Expected) if Expected is not None else None}
+        if Expected is not None:   # the best of the expected cows, and where she ranks among all pool cows
+            Ranked = [Cows[I] for I in Order]
+            Best = next((C for C in Ranked if C in Expected), None)
+            Row.update(BestExpected=Best, ExpectedRank=Ranked.index(Best) + 1 if Best is not None else None)
+        Rows.append(Row)
     return pd.DataFrame(Rows).sort_values("Crops", ascending=False).reset_index(drop=True)
 
 

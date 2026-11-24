@@ -166,7 +166,11 @@ The design notes that `CowN` in the file names is probably the **part number** o
 `ReidParlorCalving.ipynb` (code: `CalvingPipeline/Reid/ParlorIds.py`) names cows with their **farm ID**, without labelling by hand.
 
 1. **Parlor clock** (`PartOffsets`): the entry-parlor camera records all the time and cuts a file every 8 h. So part 1 = 00:00–08:00, part 2 = 08:00–16:00, part 3 = 16:00–24:00, and each milking of the BoviSync parlor report (`Nov17Parlor.xlsx`) falls in one part. `Parlor/<video>Milkings.jpg` shows a picture from the middle of each milking to check it. (Matching busy minutes to milkings, `AlignClock`, does not work here: 900 pictures every minute, day and night.)
-2. **Parlor tracks** (YOLO26m + ByteTrack, SAM 2.1 crops, DINOv3 bands) during the milkings only.
+2. **Parlor crops with farm IDs** (`ParlorStamps.py`, the default). No detector finds the cows in the fisheye parlor view (tested: YOLO26m/s, YOLO-World, YOLOE found 0–1 of ~10 cows per picture). Instead:
+   - the parlor group (`ParlorIDMatch/TimeSecond.xlsx`) timed by hand the second each cow walks into the right side in milking 1 of Nov 17 (113 cows, 4 turns of 28);
+   - their turns line up with the report's side-A turns (stalls 1–28), and the *k*-th cow in = stall *k*, so 72 times get a farm ID (3 of them calved on Nov 11–12; the other 9 were on the left side, which needs the same list);
+   - at each time, SAM 2.1 cuts out the cow under `StampPoint` (chosen once from `StampCheck.jpg`), then DINOv3 bands.
+   The tracking route (YOLO26m + ByteTrack) is kept for cameras where YOLO works.
 3. **Naming parlor cows** (`NameParlor`):
    - a *turn* = one side of the parlor filling up (its cows share one attach minute in the report);
    - every cow is milked 3 times a day with different neighbours;
