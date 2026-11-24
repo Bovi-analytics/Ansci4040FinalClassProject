@@ -111,11 +111,37 @@ def StampCheck(VideoPath, Stamps, OutPath, Count=3, Offsets=(-2, 0, 2, 4), Width
     return OutPath
 
 
+def _MotionBox(Frame, Before, Region, MinChange=8.0, Share=0.3, Grow=0.15):
+    """Box (x1, y1, x2, y2) around the moving area inside ``Region`` that
+    holds the largest change between ``Before`` and ``Frame`` (the cow
+    walking in): the pixels changing at least ``Share`` of that peak,
+    connected to it, grown by ``Grow``. None if nothing moved."""
+    A = cv2.GaussianBlur(cv2.cvtColor(Frame, cv2.COLOR_BGR2GRAY), (9, 9), 0).astype(np.float32)
+    B = cv2.GaussianBlur(cv2.cvtColor(Before, cv2.COLOR_BGR2GRAY), (9, 9), 0).astype(np.float32)
+    Change = cv2.GaussianBlur(np.abs(A - B), (21, 21), 0)
+    X1, Y1, X2, Y2 = Region
+    Inside = Change[Y1:Y2, X1:X2]
+    if Inside.size == 0 or Inside.max() < MinChange:
+        return None
+    Y, X = np.unravel_index(int(np.argmax(Inside)), Inside.shape)
+    _, Labels = cv2.connectedComponents((Inside >= Share * Inside.max()).astype(np.uint8))
+    Ys, Xs = np.nonzero(Labels == Labels[Y, X])
+    BX1, BY1, BX2, BY2 = Xs.min() + X1, Ys.min() + Y1, Xs.max() + X1, Ys.max() + Y1
+    GW, GH = (BX2 - BX1) * Grow, (BY2 - BY1) * Grow
+    H, W = Frame.shape[:2]
+    return [int(max(0, BX1 - GW)), int(max(0, BY1 - GH)), int(min(W - 1, BX2 + GW)), int(min(H - 1, BY2 + GH))]
+
+
 def CropStamps(VideoPath, Stamps, OutputDir, Point, Offsets=(1.0, 2.0, 3.0), SegModel="sam2.1_s.pt", NativeFps=None,
-               MinArea=300, Redo=False) -> pd.DataFrame:
+               MinArea=1000, Region=None, Redo=False) -> pd.DataFrame:
     """Per stamp and offset: SAM's mask of the cow under ``Point`` (x, y in
     the video's pixels) and its canonical crop. ``Stamps`` from
-    ``LabelStamps``; ``TrackId`` = ``StampId``. Writes Crops.csv, Tracks.csv,
+    ``LabelStamps``; ``TrackId`` = ``StampId``. ``Point = "Motion"``: at each
+    time, the spot inside ``Region`` (default: the right third of the
+    picture, the stalls 1-28 side, away from the pit) where the picture
+    changed most in the last 0.5 s, i.e. the cow walking in; SAM gets the box
+    around that moving area. ``MinArea``: smaller masks (a patch, not a whole
+    cow; ~2,000-5,000 px in the 352 x 240 parlor video) are dropped. Writes Crops.csv, Tracks.csv,
     FirstFrame.jpg, Stamps.csv and Run.json; skipped when done with the same
     settings."""
     from PIL import Image
@@ -123,7 +149,9 @@ def CropStamps(VideoPath, Stamps, OutputDir, Point, Offsets=(1.0, 2.0, 3.0), Seg
 
     OutputDir = Path(OutputDir)
     (OutputDir / "Crops").mkdir(parents=True, exist_ok=True)
-    Settings = {"Video": Path(VideoPath).name, "Point": list(map(int, Point)), "Offsets": list(Offsets),
+    Motion = isinstance(Point, str)
+    Settings = {"Video": Path(VideoPath).name, "Point": Point if Motion else list(map(int, Point)),
+                "Region": None if Region is None else list(map(int, Region)), "Offsets": list(Offsets),
                 "Stamps": int(len(Stamps)), "SegModel": SegModel}
     RunPath = OutputDir / "Run.json"
     if RunPath.exists() and not Redo and json.loads(RunPath.read_text()).get("Settings") == Settings:
@@ -134,7 +162,7 @@ def CropStamps(VideoPath, Stamps, OutputDir, Point, Offsets=(1.0, 2.0, 3.0), Seg
     for S in Stamps.itertuples():
         for O in Offsets:
             Want.setdefault(round(S.TimeSeconds + O, 1), []).append(S.StampId)
-    Frames = _Frames(Local, list(Want), NativeFps)
+    Frames = _Frames(Local, list(Want) + ([round(T - 0.5, 1) for T in Want] if Motion else []), NativeFps)
     Sam = SAM(SegModel)
     Crops, Tracks, First = [], [], None
     for T in sorted(Want):
@@ -142,7 +170,15 @@ def CropStamps(VideoPath, Stamps, OutputDir, Point, Offsets=(1.0, 2.0, 3.0), Seg
         if Frame is None:
             continue
         First = Frame if First is None else First
-        Result = Sam(Frame, points=[list(map(int, Point))], labels=[1], verbose=False)[0]
+        if Motion:
+            H, W = Frame.shape[:2]
+            Before = Frames.get(round(T - 0.5, 1))
+            Box = None if Before is None else _MotionBox(Frame, Before, Region or (int(W * 2 / 3), 0, W, H))
+            if Box is None:
+                continue
+            Result = Sam(Frame, bboxes=[Box], verbose=False)[0]
+        else:
+            Result = Sam(Frame, points=[list(map(int, Point))], labels=[1], verbose=False)[0]
         if Result.masks is None or not len(Result.masks.data):
             continue
         Masks = Result.masks.data.cpu().numpy().astype(bool)
