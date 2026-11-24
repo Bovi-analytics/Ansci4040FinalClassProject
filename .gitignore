@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Farm videos and model weights: never commit them (privacy, size)
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.pt
+MaskedVideos/
+.DS_Store

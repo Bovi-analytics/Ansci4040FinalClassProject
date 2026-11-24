@@ -12,6 +12,9 @@ Fill ``Cow`` with a letter per animal (A, B, C, ...; the same letter for the
 same cow in both parts), ``new`` (test video only: a cow not in the gallery),
 ``X`` (not a cow, or two cows in one mask) or leave it empty / ``?`` (not sure:
 left out). Rerunning keeps what was already filled in.
+
+``PrefillLabels`` fills the gallery's empty cells from the suggested groups
+(a quick start; check its group sheets, never use it for the test video).
 """
 
 from pathlib import Path
@@ -140,3 +143,51 @@ def ReadLabels(VideoDir) -> dict:
         if C and C != "?":
             Labels[int(T)] = "new" if C.lower() == "new" else "X" if C.upper() == "X" else C.upper()
     return Labels
+
+
+def PrefillLabels(VideoDir, Crops, MinGatedCrops=10, PerTrack=6, TileSize=120) -> pd.DataFrame:
+    """Fills the empty ``Cow`` cells of the GALLERY's Labels.csv from the
+    ``Suggested`` groups: every group with >= ``MinGatedCrops`` usable crops
+    gets a letter (A = the biggest), its tracks get that letter and the note
+    "auto S<n>". Smaller groups and single tracks stay empty (left out).
+
+    These labels come from the fingerprints themselves, so a wrong merge
+    (two cows in one group) becomes a wrong anchor. Look at
+    ``Sheets/Groups/<letter>_S<n>.jpg`` (one row per track) and fix
+    Labels.csv where a row shows another cow. Never use this for the test
+    video: its labels are the answer key and must come from a person.
+    Returns the table of groups."""
+    VideoDir = Path(VideoDir)
+    Path_ = VideoDir / "Labels.csv"
+    Table = pd.read_csv(Path_, dtype={"Cow": str, "Note": str, "Suggested": str}, keep_default_na=False)
+    Groups = (Table[Table.Suggested != ""].groupby("Suggested")
+              .agg(Tracks=("TrackId", "count"), GatedCrops=("GatedCrops", "sum"))
+              .sort_values("GatedCrops", ascending=False))
+    Groups = Groups[Groups.GatedCrops >= MinGatedCrops]
+    Taken = set(Table.Cow.str.strip().str.upper()) - {""}
+    Letters = (L for L in (chr(C) for C in range(ord("A"), ord("Z") + 1)) if L not in Taken)
+    Own = Table[Table.Cow.str.strip() != ""].groupby("Suggested").Cow.agg(lambda C: C.str.strip().str.upper().mode()[0])
+    Groups["Cow"] = [Own.get(G) or next(Letters, "") for G in Groups.index]   # a group a person already named keeps it
+    Empty = Table.Cow.str.strip() == ""
+    for Group, Row in Groups.iterrows():
+        Fill = Empty & (Table.Suggested == Group)
+        Table.loc[Fill, "Cow"] = Row.Cow
+        Table.loc[Fill, "Note"] = (Table.loc[Fill, "Note"] + f" auto {Group}").str.strip()
+    Table.to_csv(Path_, index=False)
+    # one check sheet per group: a row of crops per track
+    Out = VideoDir / "Sheets" / "Groups"
+    Out.mkdir(parents=True, exist_ok=True)
+    for Old in Out.glob("*.jpg"):
+        Old.unlink()
+    for Group, Row in Groups.iterrows():
+        Tiles = []
+        for TrackId in Table[Table.Suggested == Group].TrackId:
+            Track = Crops[Crops.TrackId == TrackId].sort_values("TimeSeconds")
+            Pick = Track.iloc[np.unique(np.linspace(0, len(Track) - 1, min(PerTrack, len(Track))).round().astype(int))]
+            Line = [_Tile(VideoDir / P, TileSize, f"T{TrackId} {FormatTime(T)[:7]}")
+                    for P, T in zip(Pick.CropPath, Pick.TimeSeconds)]
+            Tiles += Line + [np.full((TileSize, TileSize, 3), 30, np.uint8)] * (PerTrack - len(Line))
+        cv2.imwrite(str(Out / f"{Row.Cow}_{Group}.jpg"), _Sheet(Tiles, PerTrack, TileSize))
+    print(f"{Path_}: {int((Table.Cow.str.strip() != '').sum())} tracks labelled, "
+          f"{len(Groups)} cows {list(Groups.Cow)}; check {Out}")
+    return Groups.reset_index()

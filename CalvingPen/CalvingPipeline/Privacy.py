@@ -17,13 +17,16 @@ How (``MaskVideo``):
 4. The box is filled black (``Style="Fill"``; "Pixelate" is weaker: coarse
    blocks can still hint at a person). Nothing of the original is kept under it.
 5. The masked frames are encoded to a normal H.264 MP4 in ``MaskedVideos/``
-   (same folder layout as the originals), in ``SegmentMinutes`` pieces that are
+   (same folder layout as the originals; ``Crf`` 28: about the size of the
+   original), in ``SegmentMinutes`` pieces that are
    joined at the end, so a stopped run continues where it stopped.
 
 Per video, ``MaskedVideos/Logs/<folder>/<video>/`` gets ``Run.json`` (settings,
 frames, frames with people), ``PeopleBoxes.csv`` (the detected boxes, no
 pictures) and ``MaskCheck.jpg``: masked frames at each new person sighting
-and every 15 min, for a person to check that nobody was missed.
+and every 15 min, for a person to check that nobody was missed (while it
+runs they are single pictures in ``Check/``, and the video is in pieces in
+the hidden folder ``.<video>.parts``; both are joined at the end).
 
 Limits: YOLO can miss a person who is mostly hidden, very small, or in dark
 night footage. Masking only protects people if students get the
@@ -52,9 +55,12 @@ def _Clean(Name: str) -> str:
     return " ".join(Name.split())          # "CalvingPenVideos " -> "CalvingPenVideos"
 
 
-def MaskedPaths(VideoPath) -> tuple:
-    """(masked MP4, log folder) of an original video in the group folder."""
+def MaskedPaths(VideoPath, MaskedRoot=None) -> tuple:
+    """(masked MP4, log folder) of an original video in the group folder, or
+    in ``MaskedRoot`` (flat: <MaskedRoot>/<video>.mp4) when it is given."""
     VideoPath = Path(VideoPath)
+    if MaskedRoot is not None:
+        return Path(MaskedRoot) / f"{VideoPath.stem}.mp4", Path(MaskedRoot) / "Logs" / VideoPath.stem
     try:
         Folder = Path(*[_Clean(P) for P in VideoPath.parent.relative_to(GroupDir).parts])
     except ValueError:                      # not under the group folder
@@ -138,13 +144,24 @@ class _Encoder:
             raise RuntimeError("ffmpeg failed while writing a masked video")
 
 
-def _Detect(Model, Frames, ImageSize, Confidence):
-    Results = Model.predict(Frames, classes=[CocoPerson], conf=Confidence, imgsz=ImageSize, verbose=False)
+def BestDevice():
+    """CUDA (Colab), else the Mac GPU (MPS), else the CPU."""
+    import torch
+    if torch.cuda.is_available():
+        return 0
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def _Detect(Model, Frames, ImageSize, Confidence, Device=None):
+    Results = Model.predict(Frames, classes=[CocoPerson], conf=Confidence, imgsz=ImageSize, verbose=False,
+                            device=Device if Device is not None else BestDevice())
     return [[(*B, round(float(C), 3)) for B, C in zip(R.boxes.xyxy.cpu().numpy().round(1).tolist(), R.boxes.conf.tolist())]
             if R.boxes is not None else [] for R in Results]
 
 
-def _CheckSheet(Folder: Path, OutPath: Path, Columns=6, Width=320):
+def _CheckSheet(Folder: Path, OutPath: Path, Columns=4, Width=480):
     Files = sorted(Folder.glob("T*.jpg"))
     if not Files:
         return None
@@ -160,17 +177,20 @@ def _CheckSheet(Folder: Path, OutPath: Path, Columns=6, Width=320):
 
 def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize=1024, Confidence=0.15, Pad=0.15,
               HeadPad=0.25, HoldSeconds=0.5, Style="Fill", SegmentMinutes=30, OutWidth=None, NativeFps=None,
-              BatchFrames=16, CheckEveryMinutes=15, EndSeconds=None, Redo=False) -> dict:
+              BatchFrames=16, CheckEveryMinutes=15, EndSeconds=None, MaskedRoot=None, Device=None, Crf=28,
+              Redo=False) -> dict:
     """Masked copy of one video (see the module doc). Returns its Run.json.
-    ``EndSeconds``: stop there (a trial; listed as "trial", not "done")."""
+    ``EndSeconds``: stop there (a trial; listed as "trial", not "done").
+    ``MaskedRoot``: write there instead of the group drive (e.g. on a laptop)."""
     from .Reid.Frames import LocalCopy, SampleFrames
 
     VideoPath = Path(VideoPath)
-    OutPath, LogDir = MaskedPaths(VideoPath)
+    OutPath, LogDir = MaskedPaths(VideoPath, MaskedRoot)
+    Device = Device if Device is not None else BestDevice()
     Parts, CheckDir = OutPath.parent / f".{OutPath.stem}.parts", LogDir / "Check"
     Settings = {"Video": VideoPath.name, "OutFps": OutFps, "ModelName": ModelName, "ImageSize": ImageSize,
                 "Confidence": Confidence, "Pad": Pad, "HeadPad": HeadPad, "HoldSeconds": HoldSeconds, "Style": Style,
-                "SegmentMinutes": SegmentMinutes, "OutWidth": OutWidth, "NativeFps": NativeFps, "EndSeconds": EndSeconds}
+                "SegmentMinutes": SegmentMinutes, "OutWidth": OutWidth, "Crf": Crf, "NativeFps": NativeFps, "EndSeconds": EndSeconds}
     RunPath = LogDir / "Run.json"
     Run = json.loads(RunPath.read_text()) if RunPath.exists() else {}
     Same = Run.get("Settings") == Settings and not Redo
@@ -199,7 +219,7 @@ def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize
     Pending, Past = deque(), deque(maxlen=Hold)
     State = {"Segment": None, "Encoder": None, "LastSighting": -1e9, "NextCheck": From}
     Info, Started = {}, time.time()
-    print(f"{VideoPath.name}: {OutFps} fps from {From / 60:.0f} min, people blacked out -> {OutPath}")
+    print(f"{VideoPath.name}: {OutFps} fps from {From / 60:.0f} min on {Device}, people blacked out -> {OutPath}")
 
     def Close(Finished):
         if State["Encoder"] is not None:
@@ -218,7 +238,7 @@ def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize
         if Segment != State["Segment"]:
             Close(Finished=True)
             State["Segment"] = Segment
-            State["Encoder"] = _Encoder(Parts / f"Part{Segment:03d}.mp4", Out.shape[1], Out.shape[0], OutFps, OutWidth)
+            State["Encoder"] = _Encoder(Parts / f"Part{Segment:03d}.mp4", Out.shape[1], Out.shape[0], OutFps, OutWidth, Crf)
         State["Encoder"].Write(Out)
         Run["Frames"] += 1
         if Cover:
@@ -238,7 +258,7 @@ def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize
         Unique = {}
         for Tick, _, Frame in Batch:
             Unique.setdefault(Tick, Frame)       # a held picture is checked once
-        Found = dict(zip(Unique, _Detect(Model, list(Unique.values()), ImageSize, Confidence)))
+        Found = dict(zip(Unique, _Detect(Model, list(Unique.values()), ImageSize, Confidence, Device)))
         Rows = []
         for Tick, T, Frame in Batch:
             Pending.append((T, Frame, Found[Tick]))
@@ -280,6 +300,10 @@ def MaskVideo(VideoPath, Model=None, OutFps=5, ModelName="yolo26s.pt", ImageSize
         F.unlink()
     Parts.rmdir()
     _CheckSheet(CheckDir, LogDir / "MaskCheck.jpg")
+    for F in CheckDir.glob("*.jpg"):     # the sheet holds them all
+        F.unlink()
+    if not any(CheckDir.iterdir()):
+        CheckDir.rmdir()
     Run.update({"Finished": True, "LastRealSeconds": Info.get("LastRealSeconds"), "RealPictures": Info.get("RealPictures"),
                 "Minutes": round((time.time() - Started) / 60, 1),
                 "PeopleShare": round(Run["FramesWithPeople"] / max(Run["Frames"], 1), 4)})
@@ -304,7 +328,8 @@ def MaskAll(Videos=None, Part=None, Parts=4, Redo=False, **Settings) -> pd.DataF
             Run = MaskVideo(Source, Model=Model, Redo=Redo, **Settings)
             Results.append({"Video": Path(Source).name, "Status": "empty" if Run.get("Empty") else
                             "trial" if Settings.get("EndSeconds") else "done",
-                            "PeopleShare": Run.get("PeopleShare"), "Masked": str(MaskedPaths(Source)[0])})
+                            "PeopleShare": Run.get("PeopleShare"),
+                            "Masked": str(MaskedPaths(Source, Settings.get("MaskedRoot"))[0])})
         except Exception as Error:          # e.g. a broken file: note it, go on with the next video
             print(f"  FAILED: {type(Error).__name__}: {Error}")
             Results.append({"Video": Path(Source).name, "Status": f"failed: {Error}", "PeopleShare": None,
@@ -316,3 +341,40 @@ def MaskAll(Videos=None, Part=None, Parts=4, Redo=False, **Settings) -> pd.DataF
             if Copy.exists() and Copy != Path(Source):
                 Copy.unlink()              # free the Colab disk for the next video
     return pd.DataFrame(Results)
+
+
+def Main(Arguments=None):
+    """Terminal use, e.g. on a laptop with videos already downloaded:
+
+        python -m CalvingPipeline.Privacy Video1.avi Video2.mp4 --minutes 30 --out ~/MaskedVideos
+
+    Writes <out>/<video>.mp4 and <out>/Logs/<video>/MaskCheck.jpg."""
+    import argparse
+
+    Parser = argparse.ArgumentParser(prog="python -m CalvingPipeline.Privacy",
+                                     description="Black out every person in videos (see Privacy.py).")
+    Parser.add_argument("Videos", nargs="+", help="video files (.avi / .mp4 / ...)")
+    Parser.add_argument("--out", default=str(Path.home() / "MaskedVideos"), help="output folder (default ~/MaskedVideos)")
+    Parser.add_argument("--minutes", type=float, default=None, help="only the first N minutes (a trial)")
+    Parser.add_argument("--fps", type=float, default=5, help="frames per second of the masked copy (default 5)")
+    Parser.add_argument("--model", default="yolo26s.pt", help="person detector (default yolo26s.pt)")
+    Parser.add_argument("--size", type=int, default=1024, help="YOLO picture size (default 1024)")
+    Parser.add_argument("--width", type=int, default=None, help="width of the masked copy, e.g. 1280 (about half the file size); default: original")
+    Parser.add_argument("--device", default=None, help="cpu, mps or 0 (default: the best there is)")
+    Parser.add_argument("--redo", action="store_true", help="redo videos that are done")
+    A = Parser.parse_args(Arguments)
+    Out = Path(A.out).expanduser().resolve()
+    for V in A.Videos:
+        if not Path(V).expanduser().is_file():
+            raise SystemExit(f"No video at {V}: check the name (drag the file from Finder into Terminal to paste its path)")
+        if Out in Path(V).resolve().parents or Path(V).resolve().parent == Out:
+            raise SystemExit(f"--out must not contain the input videos ({V})")
+    Results = MaskAll(Videos=[Path(V).expanduser() for V in A.Videos], Redo=A.redo, MaskedRoot=Out, OutFps=A.fps,
+                      ModelName=A.model, ImageSize=A.size, Device=A.device, OutWidth=A.width,
+                      EndSeconds=A.minutes * 60 if A.minutes else None)
+    print(Results.to_string(index=False))
+    print(f"Check sheets: {Out / 'Logs'}/<video>/MaskCheck.jpg")
+
+
+if __name__ == "__main__":
+    Main()
