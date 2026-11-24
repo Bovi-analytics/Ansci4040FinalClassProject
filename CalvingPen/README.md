@@ -273,6 +273,7 @@ Folders from the first version (`Step02aTest`, `Step02bFull`, `Step02cSam2`, `St
 | 01–06 | `RunPipeline.ipynb`: all steps for a list of videos, then the pool | T4, ~1.5–2 h per hour of video | ready |
 | Re-ID | `ReidValidation.ipynb`: track + canonical crops, 8-band fingerprints, labelling sheets, identity layer, validation v1 (see *Re-ID* above) | T4, ~1–2 h per part + labelling | ready, not run yet |
 | Farm IDs | `ReidParlorCalving.ipynb`: parlor pool named from the BoviSync parlor report, then calving-pen cows named against it (see *Real farm IDs* above) | T4, ~1 h per milking + ~20 min per calving window | ready, not run yet |
+| Farm IDs, split | `ReidParlorCalvingPart1-4.ipynb`: the same notebook with `Part = 1..4`; each runs cells 1, 2, 5, 6 for a quarter of the 12 Nov 11-12 calving videos (whole recording, 1 frame/s, YOLO26s). Then one person runs cells 3, 4, 7, 8 of the main notebook | T4: ~30-45 min per part; CPU: several hours | ready |
 | Privacy | `MaskPeople.ipynb`, `MaskPeoplePart1-4.ipynb`: every video on the drive with people blacked out, into `MaskedVideos/` (see *Masking people* above) | T4, ~1–2 h per 4-hour video (estimate) | ready, not run yet |
 
 ## Conventions
