@@ -24,13 +24,20 @@ import pandas as pd
 from .Bands import LoadBands
 from .Identity import GateCrops, NameTracks
 from .Labels import ReadLabels
+from .PenArea import InPen
 
 Defaults = {"WindowMinutes": 3, "Tau": 0.015, "AnchorWeight": 0.6, "LagMinutes": 30, "MinCrops": 2, "NewScore": None}
 
 
-def LoadVideo(VideoDir, **Gates):
-    """(gated crops incl. NonCow tracks, their bands, Tracks.csv) of one video."""
+def LoadVideo(VideoDir, PenArea=None, **Gates):
+    """(gated crops incl. NonCow tracks, their bands, Tracks.csv) of one video.
+    ``PenArea``: polygon of the pen floor (``PenArea.PenAreaFor``); crops of
+    cows in the next pens are dropped first, so they get no sheet, no label and
+    no name."""
     Crops, Bands = LoadBands(VideoDir)
+    if PenArea is not None:
+        Keep = InPen(Crops, PenArea).to_numpy()
+        Crops, Bands = Crops[Keep].reset_index(drop=True), Bands[Keep]
     Crops = GateCrops(Crops, **Gates)
     Tracks = pd.read_csv(Path(VideoDir) / "Tracks.csv", usecols=["TrackId", "TimeSeconds"])
     return Crops, Bands, Tracks
