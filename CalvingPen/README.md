@@ -171,6 +171,7 @@ The design notes that `CowN` in the file names is probably the **part number** o
    - their turns line up with the report's side-A turns (stalls 1–28), and the *k*-th cow in = stall *k*, so 72 times get a farm ID (3 of them calved on Nov 11–12; the other 9 were on the left side, which needs the same list);
    - at each time, SAM 2.1 cuts out the cow under `StampPoint` (chosen once from `StampCheck.jpg`), then DINOv3 bands.
    The tracking route (YOLO26m + ByteTrack) is kept for cameras where YOLO works.
+   - **Default now: the parlor group's own named crops** (`ParlorSource = "Team"`, `ParlorStamps.TeamPool`): their `Nov17M1CropCowTeamVaca.zip` (one cut-out per timed cow: the whole back from above) with their IDs from `CleanedNov17MilkingRight.xlsx`. Their IDs and ours from the stalls agree on all 72 cows. Their crops are put in the same canonical form as the calving crops before the DINOv3 bands. Our own motion cut-outs were tested first: crops of one cow 1 s apart matched each other only 7 % of the time (pieces of a walking cow at 352 x 240), so theirs are used.
 3. **Naming parlor cows** (`NameParlor`):
    - a *turn* = one side of the parlor filling up (its cows share one attach minute in the report);
    - every cow is milked 3 times a day with different neighbours;

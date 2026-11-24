@@ -231,3 +231,58 @@ def StampSheet(OutputDir, PerCow=3, Cows=40, TileSize=110) -> Path:
     Out = OutputDir / "StampSheet.jpg"
     cv2.imwrite(str(Out), _Sheet(Tiles, PerCow * 4, TileSize))
     return Out
+
+
+def TeamPool(ZipPath, OrderPath, OutputDir, FrameSize=(240, 352), MinPixels=200) -> pd.DataFrame:
+    """The parlor group's own named crops as a pool folder: ``ZipPath`` holds
+    one masked crop per hand-timed cow (``crop_<second>s.png``, black
+    background), ``OrderPath`` (``CleanedNov17MilkingRight.xlsx``) gives the
+    cow (``EART``) of each place in the order (``MilkOrder``: the *n*-th
+    time). Each crop gets the same canonical form as ours (upright, grey
+    background, contrast stretched, 224 x 224). Writes Crops/, Crops.csv,
+    Tracks.csv, Stamps.csv (CowId per cow), FirstFrame.jpg (a blank of the
+    parlor video's size, so the gates scale) and Run.json."""
+    import re
+    import zipfile
+
+    from PIL import Image
+
+    OutputDir = Path(OutputDir)
+    (OutputDir / "Crops").mkdir(parents=True, exist_ok=True)
+    Order = pd.read_excel(OrderPath) if str(OrderPath).lower().endswith((".xlsx", ".xls")) else pd.read_csv(OrderPath)
+    CowOf = dict(zip(pd.to_numeric(Order.MilkOrder, errors="coerce"), pd.to_numeric(Order.EART, errors="coerce")))
+    Images = {}
+    with zipfile.ZipFile(ZipPath) as Z:
+        for Name in Z.namelist():
+            Found = re.search(r"crop_(\d+(?:\.\d+)?)s\.png$", Name)
+            if Found:
+                Images[float(Found.group(1))] = cv2.imdecode(np.frombuffer(Z.read(Name), np.uint8), cv2.IMREAD_COLOR)
+    Crops, Stamps = [], []
+    for N, T in enumerate(sorted(Images), 1):
+        Image_ = Images[T]
+        Cow = CowOf.get(N)
+        Stamps.append({"StampId": N, "TimeSeconds": T, "Order": N, "CowId": None if pd.isna(Cow) else int(Cow)})
+        if Image_ is None:
+            continue
+        Mask = Image_.max(axis=2) > 12                       # the cow; the rest is black
+        Crop, CropMask = CanonicalCrop(Image.fromarray(cv2.cvtColor(Image_, cv2.COLOR_BGR2RGB)), Mask, ReturnMask=True,
+                                       MinPixels=MinPixels)
+        if Crop is None:
+            continue
+        CropPath = Path("Crops") / f"Track{N:05d}" / f"T{int(round(T * 10)):07d}.jpg"
+        (OutputDir / CropPath).parent.mkdir(parents=True, exist_ok=True)
+        Crop.save(OutputDir / CropPath, quality=95)
+        H, W = Mask.shape
+        Crops.append([N, 0, T, CropPath.as_posix(), 0.0, 0.0, float(W), float(H), 1.0, int(Mask.sum()), 0.0,
+                      round(Elongation(Mask), 3), round(W / max(H, 1), 3), round(ColouredFraction(Crop, CropMask), 4),
+                      40.0, False])
+    Table = pd.DataFrame(Crops, columns=CropColumns)
+    Table.to_csv(OutputDir / "Crops.csv", index=False)
+    Table[["Tick", "TimeSeconds", "TrackId", "X1", "Y1", "X2", "Y2", "Confidence"]].to_csv(OutputDir / "Tracks.csv", index=False)
+    pd.DataFrame(Stamps).astype({"CowId": "Int64"}).to_csv(OutputDir / "Stamps.csv", index=False)
+    cv2.imwrite(str(OutputDir / "FirstFrame.jpg"), np.zeros((*FrameSize, 3), np.uint8))
+    (OutputDir / "Run.json").write_text(json.dumps({"Source": str(ZipPath), "Order": str(OrderPath), "Crops": len(Table),
+                                                    "Named": int(sum(S["CowId"] is not None for S in Stamps))}, indent=1))
+    print(f"{OutputDir.name}: {len(Table)} crops of {len(Images)} timed cows, "
+          f"{sum(S['CowId'] is not None for S in Stamps)} with a farm ID")
+    return Table
